@@ -1,0 +1,41 @@
+{
+  "name": "draft-board",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first whiteboard for Markdown, equations, images, and connected thinking. Editable by people and agents.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/MYming-yue/draft-board.git" },
+  "engines": { "node": ">=22" },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build --config vite.model.config.ts && vite build",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke-ui.mjs",
+    "smoke:formula": "node scripts/verify-formula-cards.mjs",
+    "smoke:alignment": "node scripts/verify-alignment-snap.mjs",
+    "smoke:cli": "node scripts/verify-agent-cli.mjs",
+    "smoke:pwa": "node scripts/verify-pwa-file-launch.mjs",
+    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:pwa",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "katex": "^0.16.11",
+    "markdown-it": "^14.1.0",
+    "nanoid": "^5.0.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.7",
+    "@types/markdown-it": "^14.1.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "playwright-core": "^1.63.0",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}

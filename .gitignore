@@ -1,0 +1,20 @@
+node_modules/
+dist/
+dist-model/
+*.draft
+*.draft.tmp-*
+.tmp*
+artifacts/
+test-results/
+playwright-report/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+# Local experiments and personal study fixtures are not public examples.
+scripts/repro-*.mjs
+scripts/verify-draft-open.mjs
+examples/batch-u6-words.json
+examples/batch-math-model.json

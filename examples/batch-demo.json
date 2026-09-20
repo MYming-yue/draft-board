@@ -1,0 +1,193 @@
+{
+  "batchVersion": "1.0",
+  "boardId": "b_REPLACE_ME",
+  "baseContentVersion": 0,
+  "actor": "agent",
+  "label": "Agent：添加论证分支",
+  "ops": [
+    {
+      "op": "addNode",
+      "node": {
+        "id": "n_demo_root",
+        "type": "text",
+        "markdown": "# 中心问题\n如何提高复习效率？",
+        "x": 80,
+        "y": 120,
+        "w": 280
+      },
+      "before": null,
+      "after": {
+        "id": "n_demo_root",
+        "type": "text",
+        "markdown": "# 中心问题\n如何提高复习效率？",
+        "x": 80,
+        "y": 120,
+        "w": 280
+      }
+    },
+    {
+      "op": "addNode",
+      "node": {
+        "id": "n_demo_br1",
+        "type": "text",
+        "markdown": "思路一：**间隔重复**\n按遗忘曲线安排复习",
+        "x": 480,
+        "y": 40,
+        "w": 260
+      },
+      "before": null,
+      "after": {
+        "id": "n_demo_br1",
+        "type": "text",
+        "markdown": "思路一：**间隔重复**\n按遗忘曲线安排复习",
+        "x": 480,
+        "y": 40,
+        "w": 260
+      }
+    },
+    {
+      "op": "addNode",
+      "node": {
+        "id": "n_demo_br2",
+        "type": "text",
+        "markdown": "思路二：**主动回忆**\n合上书复述要点",
+        "x": 480,
+        "y": 200,
+        "w": 260
+      },
+      "before": null,
+      "after": {
+        "id": "n_demo_br2",
+        "type": "text",
+        "markdown": "思路二：**主动回忆**\n合上书复述要点",
+        "x": 480,
+        "y": 200,
+        "w": 260
+      }
+    },
+    {
+      "op": "addNode",
+      "node": {
+        "id": "n_demo_br3",
+        "type": "text",
+        "markdown": "思路三：**交错学习**\n混合不同主题",
+        "x": 480,
+        "y": 360,
+        "w": 260
+      },
+      "before": null,
+      "after": {
+        "id": "n_demo_br3",
+        "type": "text",
+        "markdown": "思路三：**交错学习**\n混合不同主题",
+        "x": 480,
+        "y": 360,
+        "w": 260
+      }
+    },
+    {
+      "op": "addNode",
+      "node": {
+        "id": "n_demo_note",
+        "type": "text",
+        "markdown": "待补充证据",
+        "x": 880,
+        "y": 120,
+        "w": 260
+      },
+      "before": null,
+      "after": {
+        "id": "n_demo_note",
+        "type": "text",
+        "markdown": "待补充证据",
+        "x": 880,
+        "y": 120,
+        "w": 260
+      }
+    },
+    {
+      "op": "addEdge",
+      "edge": {
+        "id": "e_demo_pc1",
+        "kind": "parentChild",
+        "from": "n_demo_root",
+        "to": "n_demo_br1",
+        "directed": true
+      },
+      "before": null,
+      "after": {
+        "id": "e_demo_pc1",
+        "kind": "parentChild",
+        "from": "n_demo_root",
+        "to": "n_demo_br1",
+        "directed": true
+      }
+    },
+    {
+      "op": "addEdge",
+      "edge": {
+        "id": "e_demo_pc2",
+        "kind": "parentChild",
+        "from": "n_demo_root",
+        "to": "n_demo_br2",
+        "directed": true
+      },
+      "before": null,
+      "after": {
+        "id": "e_demo_pc2",
+        "kind": "parentChild",
+        "from": "n_demo_root",
+        "to": "n_demo_br2",
+        "directed": true
+      }
+    },
+    {
+      "op": "addEdge",
+      "edge": {
+        "id": "e_demo_pc3",
+        "kind": "parentChild",
+        "from": "n_demo_root",
+        "to": "n_demo_br3",
+        "directed": true
+      },
+      "before": null,
+      "after": {
+        "id": "e_demo_pc3",
+        "kind": "parentChild",
+        "from": "n_demo_root",
+        "to": "n_demo_br3",
+        "directed": true
+      }
+    },
+    {
+      "op": "addEdge",
+      "edge": {
+        "id": "e_demo_as1",
+        "kind": "association",
+        "from": "n_demo_br1",
+        "to": "n_demo_note",
+        "directed": true,
+        "label": "支持"
+      },
+      "before": null,
+      "after": {
+        "id": "e_demo_as1",
+        "kind": "association",
+        "from": "n_demo_br1",
+        "to": "n_demo_note",
+        "directed": true,
+        "label": "支持"
+      }
+    },
+    {
+      "op": "updateNodeText",
+      "nodeId": "n_demo_note",
+      "before": {
+        "markdown": "待补充证据"
+      },
+      "after": {
+        "markdown": "待验证的简化模型：保持率 $R=e^{-t/S}$。\n\n- [ ] 查原始文献\n- [ ] 核对模型的适用条件"
+      }
+    }
+  ]
+}

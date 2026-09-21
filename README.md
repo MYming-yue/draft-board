@@ -20,6 +20,7 @@ Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown�
 ## 现在可以做什么
 
 - 在无限画布上创建、移动、缩放和多选卡片，建立父子分支与普通关联线。
+- 同方向的有向关联重复连接会覆盖；双向关联使用分离曲线，避免箭头和说明重叠。
 - 核心表达与备注分层：概念、主张和公式居中呈现，卡片贴合内容；详细解释默认显示在下方备注区。
 - 一键切换结构视图，暂时隐藏备注；恢复后完整显示，不改变卡片位置与保存内容。
 - 编辑 Markdown 和行内 / 块级 LaTeX；有序列表按钮延续当前列表编号。
@@ -93,7 +94,7 @@ node node_modules/playwright-core/cli.js install chromium
 npm run check
 ```
 
-`check` 会依次执行类型检查与构建、单元测试、CLI 回归和五组真实浏览器检查。Linux 首次配置浏览器可使用 `install --with-deps chromium`。GitHub Actions 使用同一入口。
+`check` 会依次执行类型检查与构建、单元测试、CLI 回归和六组真实浏览器检查。Linux 首次配置浏览器可使用 `install --with-deps chromium`。GitHub Actions 使用同一入口。
 
 ## 当前边界
 

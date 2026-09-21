@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BoardEdge, BoardNode } from "../model";
+import { visibleEdges } from "../model";
 
 const EST_H = 120;
 
@@ -33,12 +34,32 @@ export function edgeGeometry(
   nodes: BoardNode[],
   heights: Record<string, number>,
   widths?: Record<string, number>,
+  edges: readonly BoardEdge[] = [],
 ): EdgeGeom | null {
   const from = nodes.find((n) => n.id === e.from);
   const to = nodes.find((n) => n.id === e.to);
   if (!from || !to) return null;
   const rf = rectOf(from, heights, widths);
   const rt = rectOf(to, heights, widths);
+  const reciprocal = e.kind === "association" && e.directed && edges.some(other =>
+    other.kind === "association" && other.directed && other.from === e.to && other.to === e.from);
+  if (reciprocal) {
+    // Both directions bend to their own left, so the two curves occupy opposite sides.
+    const vx = rt.cx - rf.cx;
+    const vy = rt.cy - rf.cy;
+    const length = Math.hypot(vx, vy);
+    const nx = length ? -vy / length : 0;
+    const ny = length ? vx / length : (e.from < e.to ? 1 : -1);
+    const bend = Math.min(96, Math.max(48, length * 0.18));
+    const control = { x: (rf.cx + rt.cx) / 2 + nx * bend, y: (rf.cy + rt.cy) / 2 + ny * bend };
+    const fromPt = borderPoint(rf, control, 2);
+    const toPt = borderPoint(rt, control, 6);
+    return {
+      fromPt, toPt,
+      mid: { x: (fromPt.x + 2 * control.x + toPt.x) / 4, y: (fromPt.y + 2 * control.y + toPt.y) / 4 },
+      d: `M ${fromPt.x} ${fromPt.y} Q ${control.x} ${control.y}, ${toPt.x} ${toPt.y}`,
+    };
+  }
   // 边框到边框：源端 +2、目标端 +6（箭头头部完整落在目标卡外侧，任何角度可见）
   const fromPt = borderPoint(rf, { x: rt.cx, y: rt.cy }, 2);
   const toPt = borderPoint(rt, { x: rf.cx, y: rf.cy }, 6);
@@ -80,8 +101,9 @@ export function EdgeLayer(p: EdgeLayerProps) {
   }, [p.editingLabelId, p.edges]);
 
   const selected = new Set(p.selectedEdgeIds);
+  const shownEdges = visibleEdges(p.edges);
   const editingEdge = p.editingLabelId ? p.edges.find((e) => e.id === p.editingLabelId) : null;
-  const editingMid = editingEdge ? (edgeGeometry(editingEdge, p.nodes, p.heights, p.widths)?.mid ?? null) : null;
+  const editingMid = editingEdge ? (edgeGeometry(editingEdge, p.nodes, p.heights, p.widths, shownEdges)?.mid ?? null) : null;
 
   return (
     <>
@@ -100,8 +122,8 @@ export function EdgeLayer(p: EdgeLayerProps) {
             <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--edge-selected)" />
           </marker>
         </defs>
-        {p.edges.map((e) => {
-          const g = edgeGeometry(e, p.nodes, p.heights, p.widths);
+        {shownEdges.map((e) => {
+          const g = edgeGeometry(e, p.nodes, p.heights, p.widths, shownEdges);
           if (!g) return null;
           const isParent = e.kind === "parentChild";
           const isSel = selected.has(e.id);
@@ -118,7 +140,7 @@ export function EdgeLayer(p: EdgeLayerProps) {
               ? "url(#arrow-parent)"
               : "url(#arrow-assoc)";
           return (
-            <g key={e.id}>
+            <g key={e.id} data-edge-id={e.id}>
               <path className={cls} d={g.d} markerEnd={e.directed ? marker : undefined} />
               {!p.readOnly && (
                 <path className="edge-hit" d={g.d} onPointerDown={(ev) => p.onSelectEdge(ev, e.id)} />

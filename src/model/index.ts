@@ -10,3 +10,4 @@ export * from "./batch";
 export * from "./duplicate";
 export * from "./layout";
 export * from "./file";
+export * from "./association";

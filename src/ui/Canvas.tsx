@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   makeId,
+  connectAssociationOps,
   replayTo,
   resolveOverlapPos,
   type BoardAsset,
@@ -511,7 +512,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
         to: targetId,
         directed: true,
       };
-      commit("建立关联", [{ op: "addEdge", edge, before: null, after: edge }], { nodes: [], edges: [edge.id] });
+      commit("建立关联", connectAssociationOps(file.edges, edge), { nodes: [], edges: [edge.id] });
       setEditingLabelId(edge.id);
     };
     window.addEventListener("pointermove", move);

@@ -381,6 +381,7 @@ body,
 .node-card.selected .connect-handle {
   opacity: 1;
 }
+.concept-card .connect-handle { right: -24px; }
 .resize-handle {
   position: absolute;
   right: -4px;

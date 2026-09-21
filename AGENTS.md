@@ -62,6 +62,7 @@ Linux 环境缺少系统库时使用 `install --with-deps chromium`。脚本默�
 | `npm run smoke:formula` | 公式居中与紧凑尺寸、备注编辑与撤销、缩放、文件往返及 PNG 导出 |
 | `npm run smoke:alignment` | 实际拖动时附近对齐、大卡扩大搜索、远处卡片不成为目标、撤销 |
 | `npm run smoke:concept` | 紧凑主体、默认备注、有序列表续号、结构视图及连线、保存与撤销、缩放；使用端口 4187 |
+| `npm run smoke:edges` | 同向关联覆盖、撤销恢复、双向曲线分离与保存；使用端口 4190 |
 | `npm run smoke:pwa` | manifest、模拟 launchQueue 打开 / 回写、缓存后离线重载 |
 
 `npm run check` 是上述命令的顺序组合，CI 执行同一命令。纯文档 PR 可以注明未运行代码测试及原因，但仍需检查相对链接、示例命令与实现一致。测试环境缺失或命令失败时，明确记录阻塞与日志，不得声称通过、删断言或跳过失败来制造绿色结果。

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BoardNode } from "../model";
 import {
   CARD_CHROME_Y,
@@ -145,6 +145,13 @@ export function NodeCard(p: NodeCardProps) {
   const focusCaption = useRef(false);
   const editFinished = useRef(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const [insertSelection, setInsertSelection] = useState<{ caption: boolean; start: number; end: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!insertSelection) return;
+    const ta = insertSelection.caption ? captionRef.current : taRef.current;
+    ta?.focus({ preventScroll: true });
+    ta?.setSelectionRange(insertSelection.start, insertSelection.end);
+  }, [insertSelection]);
 
   useEffect(() => {
     if (p.editing) {
@@ -229,13 +236,8 @@ export function NodeCard(p: NodeCardProps) {
     const value = inCaption ? captionDraft : draft;
     const next = value.slice(0, s) + snip.text + value.slice(e2);
     (inCaption ? setCaptionDraft : setDraft)(next);
-    // 等 React 提交新值后落光标；用 setTimeout(0)，rAF 在 headless/后台页会被节流
-    setTimeout(() => {
-      const t = inCaption ? captionRef.current : taRef.current;
-      if (!t) return;
-      t.focus({ preventScroll: true });
-      t.setSelectionRange(s + snip.cur, s + (snip.curEnd ?? snip.cur));
-    }, 0);
+    // DOM 新值提交后、下一次输入之前恢复选区，避免定时器与快速输入竞争。
+    setInsertSelection({ caption: inCaption, start: s + snip.cur, end: s + (snip.curEnd ?? snip.cur) });
   };
   const runMd = (make: MakeSnippet) => {
     const inCaption = activeField.current === "caption";

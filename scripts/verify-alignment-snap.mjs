@@ -25,7 +25,7 @@ try {
     // 与 B 共用同一中轴但相距很远，用于证明搜索范围不是无限。
     { id: "n_faraway", type: "text", markdown: "远处卡片", x: 500, y: 2000, w: 220, h: 120, accent: "red" },
     { id: "n_target1", type: "text", markdown: "## 卡片 B\n对齐参照", x: 500, y: 180, w: 220, h: 120, accent: "blue" },
-    { id: "n_moving1", type: "text", markdown: "## 卡片 A\n拖动我", x: 100, y: 450, w: 180, h: 100, accent: "amber" },
+    { id: "n_moving1", type: "text", markdown: "A", x: 100, y: 450, w: 180, h: 100, accent: "amber" },
   ];
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),
@@ -37,11 +37,14 @@ try {
 
   const moving = page.locator('[data-node-id="n_moving1"]');
   let box = await moving.boundingBox();
+  const target = await page.locator('[data-node-id="n_target1"]').boundingBox();
+  const centerX = 500 + (target.width - box.width) / 2;
+  const belowY = 180 + target.height + 50;
   const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   // A 放在 B 下方，水平中轴相差 6px；纵向远离任何轴，只吸水平中心。
-  await page.mouse.move(start.x + 414, start.y - 95, { steps: 12 });
+  await page.mouse.move(start.x + centerX - 100 - 6, start.y + belowY - 450, { steps: 12 });
   await page.waitForTimeout(100);
   const guideAxes = await page.locator(".alignment-guide").evaluateAll((els) => els.map((e) => e.dataset.axis).sort());
   assert.deepEqual(guideAxes, ["x"], "上下排列时显示贯穿两卡的中轴参考线");
@@ -52,7 +55,7 @@ try {
   assert.equal(await page.locator(".alignment-guide").count(), 0, "松手后参考线消失");
   let state = await page.evaluate(() => window.__state.file);
   let a = state.nodes.find((n) => n.id === "n_moving1");
-  assert.deepEqual({ x: a.x, y: a.y }, { x: 520, y: 355 }, "水平中轴精确吸附，纵向位置保持自由");
+  assert.ok(Math.abs(a.x - centerX) < 1 && Math.abs(a.y - belowY) < 1, "水平中轴精确吸附，纵向位置保持自由");
   assert.equal(state.history.at(-1).ops.length, 1);
   assert.equal(state.history.at(-1).ops[0].op, "moveNode");
 
@@ -61,7 +64,7 @@ try {
   const edgeStart = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   await page.mouse.move(edgeStart.x, edgeStart.y);
   await page.mouse.down();
-  await page.mouse.move(edgeStart.x - 207, edgeStart.y - 170, { steps: 10 });
+  await page.mouse.move(edgeStart.x + 500 - box.width - a.x - 7, edgeStart.y + 180 - a.y + 5, { steps: 10 });
   await page.waitForTimeout(100);
   assert.equal(await page.locator(".alignment-guide-x").count(), 1);
   assert.equal(await page.locator(".alignment-guide-y").count(), 1);
@@ -73,13 +76,13 @@ try {
   await page.waitForTimeout(120);
   state = await page.evaluate(() => window.__state.file);
   a = state.nodes.find((n) => n.id === "n_moving1");
-  assert.deepEqual({ x: a.x, y: a.y }, { x: 320, y: 180 }, "A 右边框贴齐 B 左边框，且上边框齐平");
+  assert.ok(Math.abs(a.x - (500 - box.width)) < 1 && a.y === 180, "A 右边框贴齐 B 左边框，且上边框齐平");
 
   // 大卡 B：A 与 B 外框相隔 120px（超过固定下限 96），仍应因 B 尺寸而进入自适应范围。
   const largeFile = createEmptyBoard("大卡自适应搜索验证");
   largeFile.board.view = { panX: 0, panY: 0, zoom: 1 };
   largeFile.nodes = [
-    { id: "n_large01", type: "text", markdown: "# 大卡 B\n尺寸越大，邻域应适当扩大", x: 400, y: 280, w: 500, h: 300, accent: "green" },
+    { id: "n_large01", type: "text", markdown: "# 大卡 B", caption: "尺寸越大，邻域应适当扩大。".repeat(12), x: 400, y: 280, w: 500, h: 300, accent: "green" },
     { id: "n_small01", type: "text", markdown: "卡片 A", x: 50, y: 80, w: 120, h: 80, accent: "amber" },
   ];
   const [largeChooser] = await Promise.all([
@@ -90,17 +93,20 @@ try {
   await page.waitForSelector('[data-node-id="n_small01"]');
   await page.waitForTimeout(200);
   const smallCard = await page.locator('[data-node-id="n_small01"]').boundingBox();
+  const largeCard = await page.locator('[data-node-id="n_large01"]').boundingBox();
+  const largeCenterX = 400 + (largeCard.width - smallCard.width) / 2;
+  const aboveY = 280 - 120 - smallCard.height;
   const smallStart = { x: smallCard.x + smallCard.width / 2, y: smallCard.y + smallCard.height / 2 };
   await page.mouse.move(smallStart.x, smallStart.y);
   await page.mouse.down();
   // A 最终位于 B 上方，外框间隔 120px；中心轴距 6px。
-  await page.mouse.move(smallStart.x + 534, smallStart.y, { steps: 12 });
+  await page.mouse.move(smallStart.x + largeCenterX - 50 - 6, smallStart.y + aboveY - 80, { steps: 12 });
   await page.waitForTimeout(100);
   assert.equal(await page.locator('.alignment-guide-x[data-target-id="n_large01"]').count(), 1, "大卡在 120px 外仍按尺寸进入候选");
   await page.mouse.up();
   const adaptiveState = await page.evaluate(() => window.__state.file);
   const small = adaptiveState.nodes.find((n) => n.id === "n_small01");
-  assert.equal(small.x, 590, "大卡自适应范围内完成中轴吸附");
+  assert.ok(Math.abs(small.x - largeCenterX) < 1, "大卡自适应范围内完成中轴吸附");
   console.log("ALIGNMENT SNAP PASS: 自适应范围 / 96px 下限 / 320px 上限 / 远卡排除 / 中轴 / 边框 / 历史步骤");
 } finally {
   await browser?.close();

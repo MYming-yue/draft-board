@@ -9,16 +9,16 @@ import {
   measureFormulaNatural,
 } from "./formulaLayout";
 import { pureFormulaKind, renderMarkdown } from "./markdown";
+import { orderedListSnippet } from "./orderedList";
 
 export const MIN_W = 160;
 export const MAX_W = 800;
-const MIN_H = 48; // 文本卡显式最小高度
-const MAX_H = 1200;
 const MIN_IMG_W = 90; // 图片卡最小外宽（含卡片 chrome），对应约 60px 图宽
 const MAX_IMG_W = 1200;
 const EDIT_MIN_W = 240; // 编辑态最小宽，避免贴合后的公式卡放不下插入条
 
 interface NodeCardProps {
+  hideCaptions: boolean;
   node: BoardNode;
   selected: boolean;
   editing: boolean;
@@ -33,14 +33,14 @@ interface NodeCardProps {
   onCommitText: (nodeId: string, markdown: string, caption?: string) => void;
   onStartEdit: (nodeId: string) => void;
   onCancelEdit: () => void;
-  onResizeTextEnd: (nodeId: string, w: number, h: number) => void;
+  onResizeTextEnd: (nodeId: string, w: number, h: number | null) => void;
   onImageAspect: (nodeId: string, aspect: number) => void;
   onResizeImageEnd: (nodeId: string, w: number, h: number) => void;
 }
 
 type Corner = "nw" | "ne" | "sw" | "se";
-type TextDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
-const TEXT_DIRS: TextDir[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+type TextDir = "e" | "w";
+const TEXT_DIRS: TextDir[] = ["e", "w"];
 
 // ---- 插入工具条定义（Issue 4）：有选中则包裹，无则插模板并把光标落到占位处 ----
 interface Snip {
@@ -52,7 +52,8 @@ const sel_ = (text: string, inner: string): Snip => {
   const i = text.indexOf(inner);
   return { text, cur: i, curEnd: i + inner.length };
 };
-const MD_BTN: { label: string; title: string; make: (sel: string, lineStart: boolean) => Snip }[] = [
+type MakeSnippet = (sel: string, lineStart: boolean, context: { value: string; start: number; end: number }) => Snip;
+const MD_BTN: { label: string; title: string; make: MakeSnippet }[] = [
   { label: "B", title: "粗体 **文字**", make: (s) => sel_(`**${s || "粗体文字"}**`, s || "粗体文字") },
   { label: "I", title: "斜体 *文字*", make: (s) => sel_(`*${s || "斜体文字"}*`, s || "斜体文字") },
   {
@@ -75,12 +76,8 @@ const MD_BTN: { label: string; title: string; make: (sel: string, lineStart: boo
   },
   {
     label: "1. 列表",
-    title: "有序列表 1. 项目",
-    make: (s, ls) => {
-      const pre = ls ? "" : "\n";
-      const t = `${pre}1. ${s || "列表项"}`;
-      return { text: t, cur: pre.length + 3, curEnd: pre.length + 3 + (s || "列表项").length };
-    },
+    title: "有序列表：延续当前列表编号",
+    make: (_s, _ls, { value, start, end }) => orderedListSnippet(value, start, end),
   },
   {
     label: "🔗",
@@ -137,7 +134,7 @@ export function NodeCard(p: NodeCardProps) {
   const { node } = p;
   const [draft, setDraft] = useState(node.markdown ?? "");
   const [captionDraft, setCaptionDraft] = useState(node.caption ?? "");
-  const [textSize, setTextSize] = useState<{ w: number; h: number } | null>(null);
+  const [textSize, setTextSize] = useState<{ w: number } | null>(null);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [liveScale, setLiveScale] = useState<number | null>(null);
   const [showBlocks, setShowBlocks] = useState(false);
@@ -169,10 +166,9 @@ export function NodeCard(p: NodeCardProps) {
   const y = node.y + (p.dragDelta?.dy ?? 0);
   const live = textSize ?? imgSize;
   let w = live?.w ?? node.w;
-  let h = live?.h ?? node.h ?? undefined;
   const accent = node.accent ?? "default";
   const isImage = node.type === "image";
-  const hasFormulaCaption = !isImage && Boolean(node.caption?.trim());
+  const hasFormulaCaption = !isImage && !p.hideCaptions && Boolean(node.caption?.trim());
 
   // ---- 纯公式卡：外框贴合公式；缩放改 scale，w/h = 字形×scale + chrome ----
   const formulaKind = isImage ? null : pureFormulaKind(node.markdown ?? "");
@@ -193,11 +189,10 @@ export function NodeCard(p: NodeCardProps) {
     [formulaKind, node.markdown, fontRevision],
   );
   let formulaScale: number | null = null;
-  const editingFormula = Boolean(p.editing && formulaKind);
   if (natural && !p.editing) {
     formulaScale =
       liveScale ?? (node.h == null ? 1 : formulaScaleFromCardW(natural.w, node.w));
-  } else if (editingFormula) {
+  } else if (p.editing) {
     w = Math.max(w, EDIT_MIN_W);
   }
 
@@ -242,39 +237,35 @@ export function NodeCard(p: NodeCardProps) {
       t.setSelectionRange(s + snip.cur, s + (snip.curEnd ?? snip.cur));
     }, 0);
   };
-  const runMd = (make: (sel: string, lineStart: boolean) => Snip) => {
+  const runMd = (make: MakeSnippet) => {
     const inCaption = activeField.current === "caption";
     const ta = inCaption ? captionRef.current : taRef.current;
     if (!ta) return;
     const value = inCaption ? captionDraft : draft;
     const sel = value.slice(ta.selectionStart, ta.selectionEnd);
     const lineStart = ta.selectionStart === 0 || value[ta.selectionStart - 1] === "\n";
-    applySnippet(make(sel, lineStart));
+    applySnippet(make(sel, lineStart, { value, start: ta.selectionStart, end: ta.selectionEnd }));
   };
 
-  // ---- 文本卡：四角+四边自由比例拖拽（Issue 2；显式 h 是最小高度，不裁切） ----
+  // ---- 概念卡：拖动左右边调整阅读宽度，高度始终由内容决定 ----
   const onTextResizeDown = (e: React.PointerEvent, dir: TextDir) => {
     e.stopPropagation();
     e.preventDefault();
-    const cardEl = (e.currentTarget as HTMLElement).closest(".node-card") as HTMLElement;
     const start = { x: e.clientX, y: e.clientY };
     const startW = node.w;
-    const startH = node.h ?? cardEl.offsetHeight;
     const zoom = getZoom(e.currentTarget);
     const sx = dir.includes("e") ? 1 : dir.includes("w") ? -1 : 0;
-    const sy = dir.includes("s") ? 1 : dir.includes("n") ? -1 : 0;
-    const sizeFor = (cx: number, cy: number) => ({
+    const sizeFor = (cx: number) => ({
       w: Math.min(MAX_W, Math.max(MIN_W, startW + (sx * (cx - start.x)) / zoom)),
-      h: Math.min(MAX_H, Math.max(MIN_H, startH + (sy * (cy - start.y)) / zoom)),
     });
-    const move = (ev: PointerEvent) => setTextSize(sizeFor(ev.clientX, ev.clientY));
+    const move = (ev: PointerEvent) => setTextSize(sizeFor(ev.clientX));
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      const next = sizeFor(ev.clientX, ev.clientY);
+      const next = sizeFor(ev.clientX);
       setTextSize(null);
-      if (Math.abs(next.w - node.w) > 0.5 || Math.abs(next.h - startH) > 0.5)
-        p.onResizeTextEnd(node.id, Math.round(next.w), Math.round(next.h));
+      if (Math.abs(next.w - node.w) > 0.5)
+        p.onResizeTextEnd(node.id, Math.round(next.w), null);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -294,7 +285,7 @@ export function NodeCard(p: NodeCardProps) {
     const zoom = getZoom(e.currentTarget);
     const start = { x: e.clientX, y: e.clientY };
     const startW = node.w;
-    const startH = node.h ?? cardEl.offsetHeight;
+    const startH = cardEl.offsetHeight;
     const sizeFor = (clientX: number, clientY: number) => {
       const dw = ((corner === "ne" || corner === "se" ? 1 : -1) * (clientX - start.x)) / zoom;
       const dh = ((corner === "sw" || corner === "se" ? 1 : -1) * (clientY - start.y)) / zoom;
@@ -352,14 +343,15 @@ export function NodeCard(p: NodeCardProps) {
   const showImgHandles = isImage && p.selected && !p.readOnly && !p.editing;
   const showFormulaHandles = Boolean(formulaKind && natural && p.selected && !p.readOnly && !p.editing);
   const showTextHandles = !isImage && !showFormulaHandles && p.selected && !p.readOnly && !p.editing;
-  const hasCaption = isImage && (node.markdown ?? "").trim().length > 0;
+  const hasCaption = isImage && !p.hideCaptions && (node.markdown ?? "").trim().length > 0;
   const formulaBox = formulaScale !== null && natural ? formulaBoxFromNatural(natural, formulaScale) : null;
-  const showCaptionEditor = !isImage && (formulaKind || pureFormulaKind(draft) || node.caption !== undefined);
+  const showCaptionEditor = !isImage;
 
   return (
     <div
       className={[
         "node-card",
+        !isImage && !p.editing && !formulaKind ? "concept-card" : "",
         `accent-${accent}`,
         formulaScale !== null ? "formula-fit" : "",
         p.selected ? "selected" : "",
@@ -372,10 +364,9 @@ export function NodeCard(p: NodeCardProps) {
         // 外框与缩放保存共用几何；flex 将公式放在外框中心。
         ...(formulaBox
           ? { width: Math.max(formulaBox.w, hasFormulaCaption ? 220 : 0), ...(hasFormulaCaption ? {} : { height: formulaBox.h }) }
-          : {
-              width: w,
-              ...(h !== undefined ? (isImage ? { height: h } : { minHeight: h }) : {}),
-            }),
+          : !isImage && !p.editing
+            ? { width: "max-content", maxWidth: Math.max(w, hasFormulaCaption ? 320 : 0), minWidth: hasFormulaCaption ? 220 : 48 }
+            : { width: w }),
       }}
       data-node-id={node.id}
       onPointerDown={(e) => p.onCardPointerDown(e, node.id)}
@@ -385,7 +376,7 @@ export function NodeCard(p: NodeCardProps) {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commitEdit();
       }}
     >
-      {p.editing && !isImage && (
+      {p.editing && (
         <div className="insert-bar" onPointerDown={(e) => e.preventDefault()}>
           {MD_BTN.map((b) => (
             <button key={b.label} type="button" title={b.title} onClick={() => runMd(b.make)}>
@@ -402,7 +393,7 @@ export function NodeCard(p: NodeCardProps) {
           </button>
         </div>
       )}
-      {p.editing && !isImage && showBlocks && (
+      {p.editing && showBlocks && (
         <div className="insert-panel" onPointerDown={(e) => e.preventDefault()}>
           {BLOCKS.map((b) => (
             <button key={b.label} type="button" title={b.title} onClick={() => applySnippet(b.snip)}>
@@ -425,7 +416,6 @@ export function NodeCard(p: NodeCardProps) {
               src={p.blobUrl}
               draggable={false}
               alt="图片卡片"
-              style={h !== undefined ? { width: "100%", height: "100%", objectFit: "fill" } : undefined}
               onLoad={(e) => {
                 const img = e.currentTarget;
                 if (img.naturalWidth > 0 && img.naturalHeight > 0)
@@ -460,12 +450,13 @@ export function NodeCard(p: NodeCardProps) {
         </>
       ) : p.editing ? (
         <>
+        <div className="core-field-label">核心表达</div>
         <textarea
           ref={taRef}
           className="node-editor"
           value={draft}
           rows={Math.min(20, Math.max(3, draft.split("\n").length + 1))}
-          placeholder="输入 Markdown，公式用 $...$ / $$...$$"
+          placeholder="核心表达：概念、问题或主张；详细解释请写在备注中"
           aria-label="卡片正文"
           onFocus={() => { activeField.current = "body"; }}
           onChange={(e) => setDraft(e.target.value)}
@@ -482,7 +473,8 @@ export function NodeCard(p: NodeCardProps) {
               className="node-editor caption-editor formula-caption-editor"
               value={captionDraft}
               rows={Math.min(12, Math.max(3, captionDraft.split("\n").length))}
-              placeholder="解释变量、单位或适用条件；支持 Markdown 和公式"
+              placeholder="对象描述、解释或证据；支持 Markdown 和公式"
+              aria-label="卡片备注"
               onFocus={() => { activeField.current = "caption"; }}
               onChange={(e) => setCaptionDraft(e.target.value)}
               onKeyDown={onTextKeyDown}
@@ -504,7 +496,7 @@ export function NodeCard(p: NodeCardProps) {
         </div>
       ) : (
         <div
-          className="node-rendered"
+          className="node-rendered concept-core"
           // markdown-it html:false，源码中的 HTML 已转义
           dangerouslySetInnerHTML={{ __html: renderMarkdown(node.markdown ?? "") }}
         />
@@ -512,7 +504,7 @@ export function NodeCard(p: NodeCardProps) {
       {!p.editing && hasFormulaCaption && (
         <div className="node-rendered node-caption formula-caption" dangerouslySetInnerHTML={{ __html: renderMarkdown(node.caption!) }} />
       )}
-      {formulaKind && p.selected && !p.editing && !p.readOnly && (
+      {p.selected && !p.editing && !p.readOnly && (
         <button
           type="button"
           className="formula-caption-button"
@@ -520,10 +512,10 @@ export function NodeCard(p: NodeCardProps) {
           onDoubleClick={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            focusCaption.current = true;
+            focusCaption.current = !isImage;
             p.onStartEdit(node.id);
           }}
-        >{hasFormulaCaption ? "编辑备注" : "+ 添加备注"}</button>
+        >{(isImage ? node.markdown : node.caption)?.trim() ? "编辑备注" : "+ 添加备注"}</button>
       )}
       {!p.readOnly && !p.editing && (
         <>
@@ -555,7 +547,7 @@ export function NodeCard(p: NodeCardProps) {
               <div
                 key={d}
                 className={`text-resize-handle dir-${d}`}
-                title="拖拽调整宽高（自由比例，文字不裁切）"
+                title="调整阅读宽度，高度随内容生长"
                 onPointerDown={(e) => onTextResizeDown(e, d)}
               />
             ))}

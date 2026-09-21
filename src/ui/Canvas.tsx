@@ -59,13 +59,14 @@ function keyboardPanDirection(keys: ReadonlySet<PanKey>): { x: number; y: number
 }
 
 interface CanvasProps {
+  structureView: boolean;
   editor: EditorApi;
   fitNonce: number; // 变化时执行「回到全部内容可见」
 }
 
 type ViewLocal = CanvasView;
 
-export function Canvas({ editor, fitNonce }: CanvasProps) {
+export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   const { state, dispatch, commit, commitAssetNode } = editor;
   const { file } = state;
   const readOnly = state.replay.active;
@@ -872,7 +873,7 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
     ]);
   };
 
-  const onResizeTextEnd = (nodeId: string, w: number, h: number) => {
+  const onResizeTextEnd = (nodeId: string, w: number, h: number | null) => {
     const node = file.nodes.find((n) => n.id === nodeId);
     if (!node) return;
     const formula = node.type === "text" && Boolean(pureFormulaKind(node.markdown ?? ""));
@@ -932,6 +933,7 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
         />
         {nodes.map((n) => (
           <NodeCard
+            hideCaptions={structureView}
             key={n.id}
             node={n}
             selected={state.selection.nodes.includes(n.id)}

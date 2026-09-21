@@ -224,6 +224,18 @@ body,
 }
 .node-rendered > :first-child { margin-top: 0; }
 .node-rendered > :last-child { margin-bottom: 0; }
+.concept-core {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  min-width: 0;
+}
+.concept-core > ul, .concept-core > ol, .concept-core > pre, .concept-core > blockquote {
+  text-align: left;
+}
+.concept-card .node-caption { text-align: left; font-weight: 400; }
+.core-field-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.concept-card .concept-core h1, .concept-card .concept-core h2, .concept-card .concept-core h3 { font-size: inherit; }
 .node-card.formula-fit {
   display: flex;
   flex-direction: column;

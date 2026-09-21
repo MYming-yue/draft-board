@@ -10,6 +10,8 @@ interface ToolbarProps {
   onExportStrip: () => void;
   onExportPng: () => void;
   onFit: () => void;
+  structureView: boolean;
+  onToggleStructure: () => void;
   onInstall?: () => void;
 }
 
@@ -82,6 +84,9 @@ export function Toolbar(p: ToolbarProps) {
         布局整理
       </button>
       <button onClick={p.onFit} title="回到全部内容可见">适应视图</button>
+      <button aria-pressed={p.structureView} onClick={p.onToggleStructure} title="只切换备注显示，不修改卡片内容或位置">
+        {p.structureView ? "显示备注" : "结构视图"}
+      </button>
       {p.onInstall && <button onClick={p.onInstall} title="安装后可在 Windows 中直接双击 .draft 文件">安装桌面版</button>}
       <button
         disabled={state.file.history.length === 0 || state.replay.active}

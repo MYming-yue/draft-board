@@ -15,8 +15,9 @@
     "smoke:formula": "node scripts/verify-formula-cards.mjs",
     "smoke:alignment": "node scripts/verify-alignment-snap.mjs",
     "smoke:cli": "node scripts/verify-agent-cli.mjs",
+    "smoke:concept": "node scripts/verify-concept-cards.mjs",
     "smoke:pwa": "node scripts/verify-pwa-file-launch.mjs",
-    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:pwa",
+    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:concept && npm run smoke:pwa",
     "preview": "vite preview"
   },
   "dependencies": {

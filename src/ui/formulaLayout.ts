@@ -6,8 +6,11 @@ import { pureFormulaKind, renderMarkdown } from "./markdown";
 export const CARD_CHROME_X = 12 + 12 + 1.5 + 1.5; // 27
 export const CARD_CHROME_Y = 10 + 10 + 1.5 + 1.5; // 23
 export const FORMULA_FONT = 14;
+export const CONCEPT_FONT = 18;
 export const FORMULA_SCALE_MIN = 0.5;
 export const FORMULA_SCALE_MAX = 6;
+export const MIN_CAPTION_W = 220;
+export const DEFAULT_CAPTION_W = 320;
 
 export function clampFormulaScale(s: number): number {
   if (!Number.isFinite(s)) return 1;
@@ -27,6 +30,49 @@ export function formulaBoxFromNatural(natural: { w: number; h: number }, scale: 
 export function formulaScaleFromCardW(naturalW: number, cardW: number): number {
   if (!(naturalW > 0)) return 1;
   return clampFormulaScale((cardW - CARD_CHROME_X) / naturalW);
+}
+
+/**
+ * 四角拖动：用指针相对按下点的距离决定比例（往外放大、往里缩小）。
+ * dw/dh 已按角方向取号，正值表示该轴向外。chrome 不参与对角线。
+ */
+export function scaleFromCornerDistance(
+  startScale: number,
+  natural: { w: number; h: number },
+  dw: number,
+  dh: number,
+): number {
+  const contentDiag = Math.hypot(natural.w, natural.h) * startScale;
+  if (!(contentDiag > 0)) return clampFormulaScale(startScale);
+  const dist = Math.hypot(dw, dh);
+  const along = dw + dh;
+  if (dist === 0 || along === 0) return clampFormulaScale(startScale);
+  const signed = along > 0 ? dist : -dist;
+  return clampFormulaScale((startScale * (contentDiag + signed)) / contentDiag);
+}
+
+export function conceptBoxFromNatural(natural: { w: number; h: number }, scale: number) {
+  const s = clampFormulaScale(scale);
+  return {
+    w: natural.w * s + CARD_CHROME_X,
+    h: natural.h * s + CARD_CHROME_Y,
+    scale: s,
+    fontSize: CONCEPT_FONT * s,
+  };
+}
+
+/** 离屏量一次 18px 基准下的概念核心尺寸。只按源码换行，不按宽度自动折行。 */
+export function measureConceptNatural(markdown: string): { w: number; h: number } | null {
+  if (typeof document === "undefined") return null;
+  const host = document.createElement("div");
+  host.className = "node-rendered concept-core";
+  host.style.cssText =
+    `position:absolute;visibility:hidden;left:-9999px;top:0;font-size:${CONCEPT_FONT}px;font-weight:600;text-align:center;line-height:1.55;width:max-content;max-width:none;white-space:nowrap;word-break:normal;overflow-wrap:normal;margin:0;padding:0;border:0;`;
+  host.innerHTML = renderMarkdown(markdown);
+  document.body.appendChild(host);
+  const box = host.getBoundingClientRect();
+  host.remove();
+  return box.width > 0 && box.height > 0 ? { w: box.width, h: box.height } : null;
 }
 
 /** 离屏量一次 14px 基准下的公式字形尺寸。无 DOM / 非纯公式 / 量不到则 null。 */

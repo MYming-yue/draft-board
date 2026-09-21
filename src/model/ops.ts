@@ -119,10 +119,17 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
       case "resizeNode": {
         const node = findNode(state, op.nodeId);
         if (!node) return fail(err("E_UNKNOWN_NODE", `节点不存在：${op.nodeId}`, i, at("nodeId")));
-        const before = { w: node.w, h: node.h ?? null };
+        const before: { w: number; h: number | null; coreScale?: number | null } = { w: node.w, h: node.h ?? null };
+        const after: { w: number; h: number | null; coreScale?: number | null } = { w: op.after.w, h: op.after.h };
         node.w = op.after.w;
         node.h = op.after.h;
-        normalized.push({ op: "resizeNode", nodeId: node.id, before, after: { w: op.after.w, h: op.after.h } });
+        if (op.after.coreScale !== undefined) {
+          before.coreScale = node.coreScale ?? null;
+          after.coreScale = op.after.coreScale;
+          if (op.after.coreScale === null) delete node.coreScale;
+          else node.coreScale = op.after.coreScale;
+        }
+        normalized.push({ op: "resizeNode", nodeId: node.id, before, after });
         break;
       }
       case "setNodeAccent": {
@@ -131,6 +138,24 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
         const before = { accent: node.accent ?? ("default" as const) };
         node.accent = op.after.accent;
         normalized.push({ op: "setNodeAccent", nodeId: node.id, before, after: { accent: op.after.accent } });
+        break;
+      }
+      case "setCaptionExpanded": {
+        const node = findNode(state, op.nodeId);
+        if (!node) return fail(err("E_UNKNOWN_NODE", `节点不存在：${op.nodeId}`, i, at("nodeId")));
+        const before = { expanded: Boolean(node.captionExpanded) };
+        if (op.after.expanded) node.captionExpanded = true;
+        else delete node.captionExpanded;
+        normalized.push({ op: "setCaptionExpanded", nodeId: node.id, before, after: { expanded: op.after.expanded } });
+        break;
+      }
+      case "setCaptionWidth": {
+        const node = findNode(state, op.nodeId);
+        if (!node) return fail(err("E_UNKNOWN_NODE", `节点不存在：${op.nodeId}`, i, at("nodeId")));
+        const before = { captionW: node.captionW ?? null };
+        if (op.after.captionW === null) delete node.captionW;
+        else node.captionW = op.after.captionW;
+        normalized.push({ op: "setCaptionWidth", nodeId: node.id, before, after: { captionW: op.after.captionW } });
         break;
       }
       case "addEdge": {
@@ -251,11 +276,28 @@ export function invertOps(ops: Op[]): Op[] {
         break;
       case "resizeNode":
         if (!op.before) throw new Error("resizeNode 缺 before，无法求逆");
-        inverse.push({ op: "resizeNode", nodeId: op.nodeId, before: null, after: { w: op.before.w, h: op.before.h } });
+        inverse.push({
+          op: "resizeNode",
+          nodeId: op.nodeId,
+          before: null,
+          after: {
+            w: op.before.w,
+            h: op.before.h,
+            ...(op.before.coreScale !== undefined ? { coreScale: op.before.coreScale } : {}),
+          },
+        });
         break;
       case "setNodeAccent":
         if (!op.before) throw new Error("setNodeAccent 缺 before，无法求逆");
         inverse.push({ op: "setNodeAccent", nodeId: op.nodeId, before: null, after: { accent: op.before.accent } });
+        break;
+      case "setCaptionExpanded":
+        if (!op.before) throw new Error("setCaptionExpanded 缺 before，无法求逆");
+        inverse.push({ op: "setCaptionExpanded", nodeId: op.nodeId, before: null, after: { expanded: op.before.expanded } });
+        break;
+      case "setCaptionWidth":
+        if (!op.before) throw new Error("setCaptionWidth 缺 before，无法求逆");
+        inverse.push({ op: "setCaptionWidth", nodeId: op.nodeId, before: null, after: { captionW: op.before.captionW } });
         break;
       case "addEdge":
         inverse.push({ op: "removeEdge", edgeId: op.edge.id, before: null, after: null });

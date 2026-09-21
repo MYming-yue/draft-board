@@ -27,18 +27,19 @@
 
 `view` 含 `panX/panY/zoom`，zoom 范围为 `(0,10]`。节点、边、资源、白板的 ID 分别使用 `n_`、`e_`、`a_`、`b_` 前缀，后接 6–32 个字母、数字、下划线或短横线。
 
-节点公共字段：`id/type/x/y/w`，可选 `h/accent`。位置是有限世界坐标，宽度大于零，`h` 可缺省、为 null 或为正数。颜色为 `default/blue/green/amber/red`。
+节点公共字段：`id/type/x/y/w`，可选 `h/accent/captionExpanded/coreScale/captionW`。位置是有限世界坐标，宽度大于零，`h` 可缺省、为 null 或为正数。颜色为 `default/blue/green/amber/red`。`captionExpanded` 为布尔值，缺省或 `false` 表示未选中时备注按 15 行截断；`true` 表示阅读态常驻展开。`coreScale` 为普通文本核心比例，缺省 1。`captionW` 为备注阅读宽度。
 
 - `type=text`：必须含 `markdown` 字符串，可含独立 `caption` 字符串。
 - `type=image`：必须含 `assetId`，可选 `markdown` 作为图片说明；不使用 `caption`。
-- 普通文本卡以 `markdown` 为核心表达，居中、18px 强调呈现；解释由独立 `caption` 承载，默认可见、左对齐、13px 较弱颜色。短核心收拢，长核心在阅读宽度内换行；不根据字数自动把正文迁移到备注。旧正文与备注原文保留。
-- 普通文本卡的 `w` 是阅读宽度上限，备注显示时最低宽度 220、默认上限至少 320。高度始终随内容生长，旧 `h` 保留在文件中但不再撑出空白；左右手柄调整 `w` 并把 `h` 设为 null，一个可撤销步骤。短内容不为填满宽度制造空白。
-- 纯公式文本卡的 `w/h` 仍描述公式区域，公式居中并等比缩放；备注以正常字号排列在其下方，外框按需扩展，备注卡最小宽度 220。图片保持原比例，外框高度包含可见说明。
+- 普通文本卡以 `markdown` 为核心表达，居中、18px×`coreScale` 强调呈现；解释由独立 `caption` 承载，默认可见、左对齐、13px 较弱颜色。核心区阅读态只按编辑源码中的换行分行，不按宽度自动折行；编辑态同样不自动折行，用 Enter 控制阅读分行。不根据字数自动把正文迁移到备注。
+- 文本/公式卡外框宽度为 `max(核心区宽, 备注阅读宽)`。四角手柄在**卡片外框**四角（与原公式卡相同），比例由指针相对按下点的距离决定（往外放大、往里缩小），等比缩放核心，备注字号不变。左右手柄只改 `captionW`（最低 `max(220, 核心宽)`，最高 800），不能压缩或拉长核心文字。缺省 `captionW` 时有备注则至少 220。
+- 纯公式文本卡的 `w/h` 仍描述公式区域，公式居中并等比缩放；备注以正常字号排列在其下方。图片保持原比例，外框高度包含可见说明。关联圆点在所有卡片右边框外 24px。
+- 备注阅读态默认最多 15 行，超出截断；单击选中卡片时展开全文。编辑区固定 15 行高，并提供「常驻展开」开关（默认关闭），写入 `captionExpanded`。结构视图仍整段隐藏备注。
 - 纯公式由 Markdown 去除首尾空白后是否整体为单个 `$...$` 或 `$$...$$` 判断；混合正文保留普通卡片布局。渲染失败保留源码。
 
 边包含 `id/kind/from/to/directed`，可选 `label`。`parentChild` 必须有向、单父、无环；`association` 可以跨分支与形成循环。
 
-兼容性：新读取器接受无 `caption` 的旧文件。增加 `updateNodeCaption` 后，包含该操作的历史可能被旧程序以 `E_SCHEMA` 拒绝；不能仅凭 `formatVersion=1.0` 推断双向兼容。
+兼容性：新读取器接受无 `caption` / `captionExpanded` / `coreScale` / `captionW` 的旧文件。增加 `updateNodeCaption`、`setCaptionExpanded`、`setCaptionWidth` 以及 `resizeNode.coreScale` 后，包含这些操作的历史可能被旧程序以 `E_SCHEMA` 拒绝；不能仅凭 `formatVersion=1.0` 推断双向兼容。
 
 ### 2-C. 操作词汇
 
@@ -51,8 +52,10 @@
 | `updateNodeText` | `nodeId` | `{markdown}`，含图片说明 |
 | `updateNodeCaption` | `nodeId` | `{caption: string或null}`，仅 text；null 删除字段 |
 | `moveNode` | `nodeId` | `{x,y}` |
-| `resizeNode` | `nodeId` | `{w,h}` |
+| `resizeNode` | `nodeId` | `{w,h, coreScale?}`；`coreScale` 缺省不改，`null` 删除字段 |
 | `setNodeAccent` | `nodeId` | `{accent}` |
+| `setCaptionExpanded` | `nodeId` | `{expanded: boolean}`；`false` 删除字段 |
+| `setCaptionWidth` | `nodeId` | `{captionW: number或null}`；null 删除字段 |
 | `addEdge` | `edge` | 完整 edge |
 | `removeEdge` | `edgeId` | null |
 | `updateEdge` | `edgeId` | `{from,to,label?,directed}` |
@@ -136,7 +139,7 @@ I1：边端点存在，删除节点同步删除关联边。I2：父子图单父�
 
 默认显示备注。工具栏“结构视图”全局隐藏文字、公式、图片的备注，外框收拢，连线、框选与吸附跟随可见外框；“显示备注”恢复。切换不移动节点，不改 `BoardFile`、contentVersion 或历史，也不随画布缩放自动切换。它是当前会话的显示状态，不写入文件；`.draft` 保存始终包含备注，PNG 导出反映当前可见视图。进入编辑时仍显示完整字段，避免隐藏待修改内容。
 
-所有文本卡编辑器提供核心表达与备注两个区域；同次提交为一个历史步骤，Esc 取消两者修改。图片仍以 markdown 存说明。插入工具条作用于当前聚焦的字段。
+所有文本卡编辑器提供核心表达与备注两个区域；同次提交为一个历史步骤，Esc 取消两者修改。图片仍以 markdown 存说明。插入工具条作用于当前聚焦的字段。备注编辑区为 15 行；「常驻展开」与正文/备注同次提交。
 
 有序列表按钮插入同层下一项序号：依据光标前连续列表最近一项递增，跨空白段落或普通正文重新从 1 开始，不受光标后列表影响。保留当前列表缩进；本次不引入 `1.1` 式多级编号。此变更不增加字段或 op，formatVersion 与 batchVersion 仍为 1.0；旧程序呈现布局可能不同。
 

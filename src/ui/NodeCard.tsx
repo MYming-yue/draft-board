@@ -1,18 +1,25 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BoardNode } from "../model";
 import {
+  CARD_CHROME_X,
   CARD_CHROME_Y,
+  CONCEPT_FONT,
+  DEFAULT_CAPTION_W,
   FORMULA_FONT,
-  clampFormulaScale,
+  MIN_CAPTION_W,
+  conceptBoxFromNatural,
   formulaBoxFromNatural,
   formulaScaleFromCardW,
+  measureConceptNatural,
   measureFormulaNatural,
+  scaleFromCornerDistance,
 } from "./formulaLayout";
 import { pureFormulaKind, renderMarkdown } from "./markdown";
 import { orderedListSnippet } from "./orderedList";
 
-export const MIN_W = 160;
 export const MAX_W = 800;
+/** 阅读态默认最多显示的备注行数；编辑区同样为该行数。 */
+export const CAPTION_MAX_LINES = 15;
 const MIN_IMG_W = 90; // 图片卡最小外宽（含卡片 chrome），对应约 60px 图宽
 const MAX_IMG_W = 1200;
 const EDIT_MIN_W = 240; // 编辑态最小宽，避免贴合后的公式卡放不下插入条
@@ -30,10 +37,11 @@ interface NodeCardProps {
   onCardPointerDown: (e: React.PointerEvent, nodeId: string) => void;
   onCardPointerUp: (e: React.PointerEvent, nodeId: string) => void;
   onStartConnect: (e: React.PointerEvent, nodeId: string) => void;
-  onCommitText: (nodeId: string, markdown: string, caption?: string) => void;
+  onCommitText: (nodeId: string, markdown: string, caption?: string, captionExpanded?: boolean) => void;
   onStartEdit: (nodeId: string) => void;
   onCancelEdit: () => void;
-  onResizeTextEnd: (nodeId: string, w: number, h: number | null) => void;
+  onResizeTextEnd: (nodeId: string, w: number, h: number | null, coreScale?: number | null) => void;
+  onResizeCaptionWidth: (nodeId: string, captionW: number) => void;
   onImageAspect: (nodeId: string, aspect: number) => void;
   onResizeImageEnd: (nodeId: string, w: number, h: number) => void;
 }
@@ -134,7 +142,8 @@ export function NodeCard(p: NodeCardProps) {
   const { node } = p;
   const [draft, setDraft] = useState(node.markdown ?? "");
   const [captionDraft, setCaptionDraft] = useState(node.caption ?? "");
-  const [textSize, setTextSize] = useState<{ w: number } | null>(null);
+  const [expandedDraft, setExpandedDraft] = useState(Boolean(node.captionExpanded));
+  const [liveCaptionW, setLiveCaptionW] = useState<number | null>(null);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [liveScale, setLiveScale] = useState<number | null>(null);
   const [showBlocks, setShowBlocks] = useState(false);
@@ -157,6 +166,7 @@ export function NodeCard(p: NodeCardProps) {
     if (p.editing) {
       setDraft(node.markdown ?? "");
       setCaptionDraft(node.caption ?? "");
+      setExpandedDraft(Boolean(node.captionExpanded));
       editFinished.current = false;
       // effect 运行时 textarea 已挂载，直接聚焦——不要用 rAF（headless/后台页会被节流）
       const t = focusCaption.current ? captionRef.current : taRef.current;
@@ -171,7 +181,7 @@ export function NodeCard(p: NodeCardProps) {
 
   const x = node.x + (p.dragDelta?.dx ?? 0);
   const y = node.y + (p.dragDelta?.dy ?? 0);
-  const live = textSize ?? imgSize;
+  const live = imgSize;
   let w = live?.w ?? node.w;
   const accent = node.accent ?? "default";
   const isImage = node.type === "image";
@@ -181,7 +191,7 @@ export function NodeCard(p: NodeCardProps) {
   const formulaKind = isImage ? null : pureFormulaKind(node.markdown ?? "");
   const [fontRevision, setFontRevision] = useState(0);
   useEffect(() => {
-    if (!formulaKind) return;
+    if (isImage) return;
     let active = true;
     const refresh = () => { if (active) setFontRevision((v) => v + 1); };
     void document.fonts.ready.then(refresh);
@@ -190,23 +200,32 @@ export function NodeCard(p: NodeCardProps) {
       active = false;
       document.fonts.removeEventListener("loadingdone", refresh);
     };
-  }, [formulaKind]);
-  const natural = useMemo(
+  }, [isImage]);
+  const formulaNatural = useMemo(
     () => (formulaKind ? measureFormulaNatural(node.markdown ?? "") : null),
     [formulaKind, node.markdown, fontRevision],
   );
+  const conceptScale0 = node.coreScale ?? 1;
+  const conceptNatural = useMemo(
+    () => (!isImage && !formulaKind ? measureConceptNatural(node.markdown ?? "") : null),
+    [isImage, formulaKind, node.markdown, fontRevision],
+  );
   let formulaScale: number | null = null;
-  if (natural && !p.editing) {
+  if (formulaNatural && !p.editing) {
     formulaScale =
-      liveScale ?? (node.h == null ? 1 : formulaScaleFromCardW(natural.w, node.w));
+      liveScale ?? (node.h == null ? 1 : formulaScaleFromCardW(formulaNatural.w, node.w));
   } else if (p.editing) {
     w = Math.max(w, EDIT_MIN_W);
   }
+  const conceptScale = !formulaKind && !isImage && !p.editing ? (liveScale ?? conceptScale0) : null;
+  const formulaBox = formulaScale !== null && formulaNatural ? formulaBoxFromNatural(formulaNatural, formulaScale) : null;
+  const conceptBox = conceptNatural && conceptScale !== null ? conceptBoxFromNatural(conceptNatural, conceptScale) : null;
+  const coreBox = formulaBox ?? conceptBox;
 
   const commitEdit = () => {
     if (!p.editing || editFinished.current) return;
     editFinished.current = true;
-    p.onCommitText(node.id, draft, isImage ? undefined : captionDraft);
+    p.onCommitText(node.id, draft, isImage ? undefined : captionDraft, expandedDraft);
   };
   const onTextKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ctrl+Enter 是显式提交指令，即使在 IME composition 中也优先响应
@@ -249,25 +268,24 @@ export function NodeCard(p: NodeCardProps) {
     applySnippet(make(sel, lineStart, { value, start: ta.selectionStart, end: ta.selectionEnd }));
   };
 
-  // ---- 概念卡：拖动左右边调整阅读宽度，高度始终由内容决定 ----
-  const onTextResizeDown = (e: React.PointerEvent, dir: TextDir) => {
+  // ---- 左右手柄：只改备注阅读宽度，不能压扁核心区 ----
+  const onCaptionResizeDown = (e: React.PointerEvent, dir: TextDir) => {
     e.stopPropagation();
     e.preventDefault();
     const start = { x: e.clientX, y: e.clientY };
-    const startW = node.w;
+    const coreW = formulaBox?.w ?? conceptBox?.w ?? node.w;
+    const startW = Math.max(coreW, node.captionW ?? DEFAULT_CAPTION_W);
     const zoom = getZoom(e.currentTarget);
     const sx = dir.includes("e") ? 1 : dir.includes("w") ? -1 : 0;
-    const sizeFor = (cx: number) => ({
-      w: Math.min(MAX_W, Math.max(MIN_W, startW + (sx * (cx - start.x)) / zoom)),
-    });
-    const move = (ev: PointerEvent) => setTextSize(sizeFor(ev.clientX));
+    const minW = Math.max(MIN_CAPTION_W, coreW);
+    const sizeFor = (cx: number) => Math.min(MAX_W, Math.max(minW, startW + (sx * (cx - start.x)) / zoom));
+    const move = (ev: PointerEvent) => setLiveCaptionW(sizeFor(ev.clientX));
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       const next = sizeFor(ev.clientX);
-      setTextSize(null);
-      if (Math.abs(next.w - node.w) > 0.5)
-        p.onResizeTextEnd(node.id, Math.round(next.w), null);
+      setLiveCaptionW(null);
+      if (Math.abs(next - startW) > 0.5) p.onResizeCaptionWidth(node.id, Math.round(next));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -310,23 +328,22 @@ export function NodeCard(p: NodeCardProps) {
     window.addEventListener("pointerup", up);
   };
 
-  // ---- 纯公式卡：四角手柄等比缩放（公式与外框同比例；chrome 固定不参与比例） ----
-  const onFormulaResizeDown = (e: React.PointerEvent, corner: Corner) => {
+  // ---- 四角：核心区等比缩放（公式或文字）；chrome / 备注不参与比例 ----
+  const onCoreResizeDown = (e: React.PointerEvent, corner: Corner) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!natural) return;
+    const nat = formulaKind ? formulaNatural : conceptNatural;
+    if (!nat) return;
     const zoom = getZoom(e.currentTarget);
     const start = { x: e.clientX, y: e.clientY };
-    const startBox = formulaBoxFromNatural(
-      natural,
-      node.h == null ? 1 : formulaScaleFromCardW(natural.w, node.w),
-    );
+    const startScale = formulaKind
+      ? (node.h == null ? 1 : formulaScaleFromCardW(nat.w, node.w))
+      : conceptScale0;
+    const startBox = formulaKind ? formulaBoxFromNatural(nat, startScale) : conceptBoxFromNatural(nat, startScale);
     const scaleFor = (clientX: number, clientY: number) => {
       const dw = ((corner === "ne" || corner === "se" ? 1 : -1) * (clientX - start.x)) / zoom;
       const dh = ((corner === "sw" || corner === "se" ? 1 : -1) * (clientY - start.y)) / zoom;
-      const sW = formulaScaleFromCardW(natural.w, startBox.w + dw);
-      const sH = clampFormulaScale((startBox.h + dh - CARD_CHROME_Y) / natural.h);
-      return Math.abs(sW - startBox.scale) >= Math.abs(sH - startBox.scale) ? sW : sH;
+      return scaleFromCornerDistance(startScale, nat, dw, dh);
     };
     const move = (ev: PointerEvent) => setLiveScale(scaleFor(ev.clientX, ev.clientY));
     const up = (ev: PointerEvent) => {
@@ -334,20 +351,29 @@ export function NodeCard(p: NodeCardProps) {
       window.removeEventListener("pointerup", up);
       const nextS = scaleFor(ev.clientX, ev.clientY);
       setLiveScale(null);
-      const next = formulaBoxFromNatural(natural, nextS);
-      if (Math.abs(next.w - startBox.w) > 0.5 || Math.abs(next.h - startBox.h) > 0.5)
-        p.onResizeTextEnd(node.id, Math.round(next.w), Math.round(next.h));
+      const next = formulaKind ? formulaBoxFromNatural(nat, nextS) : conceptBoxFromNatural(nat, nextS);
+      if (Math.abs(next.w - startBox.w) > 0.5 || Math.abs(next.h - startBox.h) > 0.5) {
+        p.onResizeTextEnd(
+          node.id,
+          Math.round(next.w),
+          formulaKind ? Math.round(next.h) : null,
+          formulaKind ? null : next.scale,
+        );
+      }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
 
   const showImgHandles = isImage && p.selected && !p.readOnly && !p.editing;
-  const showFormulaHandles = Boolean(formulaKind && natural && p.selected && !p.readOnly && !p.editing);
-  const showTextHandles = !isImage && !showFormulaHandles && p.selected && !p.readOnly && !p.editing;
+  const showCoreHandles = Boolean(coreBox && p.selected && !p.readOnly && !p.editing);
+  const showCaptionHandles = showCoreHandles && hasFormulaCaption;
   const hasCaption = isImage && !p.hideCaptions && (node.markdown ?? "").trim().length > 0;
-  const formulaBox = formulaScale !== null && natural ? formulaBoxFromNatural(natural, formulaScale) : null;
+  const captionOpen = p.selected || Boolean(node.captionExpanded);
+  const captionClass = ["node-rendered", "node-caption", captionOpen ? "" : "caption-clamped"].filter(Boolean).join(" ");
   const showCaptionEditor = !isImage;
+  const captionReadingW = hasFormulaCaption ? (liveCaptionW ?? node.captionW ?? DEFAULT_CAPTION_W) : 0;
+  const outerW = coreBox ? Math.max(coreBox.w, captionReadingW) : w;
 
   return (
     <div
@@ -355,6 +381,7 @@ export function NodeCard(p: NodeCardProps) {
         "node-card",
         !isImage && !p.editing && !formulaKind ? "concept-card" : "",
         `accent-${accent}`,
+        !isImage && !p.editing ? "has-core" : "",
         formulaScale !== null ? "formula-fit" : "",
         p.selected ? "selected" : "",
         p.connectSourceId && p.connectSourceId !== node.id ? "connect-target" : "",
@@ -363,11 +390,13 @@ export function NodeCard(p: NodeCardProps) {
       style={{
         left: x,
         top: y,
-        // 外框与缩放保存共用几何；flex 将公式放在外框中心。
-        ...(formulaBox
-          ? { width: Math.max(formulaBox.w, hasFormulaCaption ? 220 : 0), ...(hasFormulaCaption ? {} : { height: formulaBox.h }) }
-          : !isImage && !p.editing
-            ? { width: "max-content", maxWidth: Math.max(w, hasFormulaCaption ? 320 : 0), minWidth: hasFormulaCaption ? 220 : 48 }
+        ...(p.editing && !isImage
+          ? { width: "max-content", minWidth: EDIT_MIN_W }
+          : coreBox
+            ? {
+                width: outerW,
+                ...(formulaBox && !hasFormulaCaption ? { height: formulaBox.h } : {}),
+              }
             : { width: w }),
       }}
       data-node-id={node.id}
@@ -428,23 +457,29 @@ export function NodeCard(p: NodeCardProps) {
             <div className="node-image-missing">图片缺失</div>
           )}
           {p.editing ? (
-            <textarea
-              ref={taRef}
-              className="node-editor caption-editor"
-              value={draft}
-              rows={Math.min(8, Math.max(1, draft.split("\n").length))}
-              placeholder="图片说明（支持 Markdown，留空则不显示）"
-              onFocus={() => { activeField.current = "body"; }}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onTextKeyDown}
-              onCompositionStart={() => (composing.current = true)}
-              onCompositionEnd={() => (composing.current = false)}
-              onPointerDown={(e) => e.stopPropagation()}
-            />
+            <div className="formula-caption-field">
+              <div className="caption-field-head">
+                <span>图片说明（可选）</span>
+                <CaptionExpandToggle checked={expandedDraft} onChange={setExpandedDraft} />
+              </div>
+              <textarea
+                ref={taRef}
+                className="node-editor caption-editor"
+                value={draft}
+                rows={CAPTION_MAX_LINES}
+                placeholder="图片说明（支持 Markdown，留空则不显示）"
+                onFocus={() => { activeField.current = "body"; }}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={onTextKeyDown}
+                onCompositionStart={() => (composing.current = true)}
+                onCompositionEnd={() => (composing.current = false)}
+                onPointerDown={(e) => e.stopPropagation()}
+              />
+            </div>
           ) : (
             hasCaption && (
               <div
-                className="node-rendered node-caption"
+                className={captionClass}
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(node.markdown ?? "") }}
               />
             )
@@ -455,9 +490,10 @@ export function NodeCard(p: NodeCardProps) {
         <div className="core-field-label">核心表达</div>
         <textarea
           ref={taRef}
-          className="node-editor"
+          className="node-editor core-editor"
           value={draft}
           rows={Math.min(20, Math.max(3, draft.split("\n").length + 1))}
+          wrap="off"
           placeholder="核心表达：概念、问题或主张；详细解释请写在备注中"
           aria-label="卡片正文"
           onFocus={() => { activeField.current = "body"; }}
@@ -468,13 +504,16 @@ export function NodeCard(p: NodeCardProps) {
           onPointerDown={(e) => e.stopPropagation()}
         />
         {showCaptionEditor && (
-          <label className="formula-caption-field">
-            <span>备注（可选）</span>
+          <div className="formula-caption-field">
+            <div className="caption-field-head">
+              <span>备注（可选）</span>
+              <CaptionExpandToggle checked={expandedDraft} onChange={setExpandedDraft} />
+            </div>
             <textarea
               ref={captionRef}
               className="node-editor caption-editor formula-caption-editor"
               value={captionDraft}
-              rows={Math.min(12, Math.max(3, captionDraft.split("\n").length))}
+              rows={CAPTION_MAX_LINES}
               placeholder="对象描述、解释或证据；支持 Markdown 和公式"
               aria-label="卡片备注"
               onFocus={() => { activeField.current = "caption"; }}
@@ -484,27 +523,34 @@ export function NodeCard(p: NodeCardProps) {
               onCompositionEnd={() => (composing.current = false)}
               onPointerDown={(e) => e.stopPropagation()}
             />
-          </label>
+          </div>
         )}
         </>
       ) : formulaScale !== null ? (
-        <div className="formula-stage" style={{ height: formulaBox!.h - CARD_CHROME_Y }}>
+        <div
+          className="core-stage formula-stage"
+          style={{ width: formulaBox!.w - CARD_CHROME_X, height: formulaBox!.h - CARD_CHROME_Y }}
+        >
         <div
           className="node-rendered formula-scaled"
-          // 纯公式卡：KaTeX 全 em 相对单位，跟随容器 font-size 整体缩放
           style={{ fontSize: FORMULA_FONT * formulaScale }}
           dangerouslySetInnerHTML={{ __html: renderMarkdown(node.markdown ?? "") }}
         />
         </div>
       ) : (
         <div
+          className="core-stage"
+          style={conceptBox ? { width: conceptBox.w - CARD_CHROME_X } : undefined}
+        >
+        <div
           className="node-rendered concept-core"
-          // markdown-it html:false，源码中的 HTML 已转义
+          style={conceptScale ? { fontSize: CONCEPT_FONT * conceptScale } : undefined}
           dangerouslySetInnerHTML={{ __html: renderMarkdown(node.markdown ?? "") }}
         />
+        </div>
       )}
       {!p.editing && hasFormulaCaption && (
-        <div className="node-rendered node-caption formula-caption" dangerouslySetInnerHTML={{ __html: renderMarkdown(node.caption!) }} />
+        <div className={`${captionClass} formula-caption`} dangerouslySetInnerHTML={{ __html: renderMarkdown(node.caption!) }} />
       )}
       {p.selected && !p.editing && !p.readOnly && (
         <button
@@ -535,27 +581,41 @@ export function NodeCard(p: NodeCardProps) {
                 onPointerDown={(e) => onCornerPointerDown(e, c)}
               />
             ))}
-          {showFormulaHandles &&
+          {showCoreHandles &&
             (["nw", "ne", "sw", "se"] as Corner[]).map((c) => (
               <div
                 key={c}
-                className={`formula-resize-handle corner-${c}`}
-                title="拖拽等比缩放公式"
-                onPointerDown={(e) => onFormulaResizeDown(e, c)}
+                className={`core-resize-handle formula-resize-handle corner-${c}`}
+                title="拖拽卡片四角，等比缩放核心"
+                onPointerDown={(e) => onCoreResizeDown(e, c)}
               />
             ))}
-          {showTextHandles &&
+          {showCaptionHandles &&
             TEXT_DIRS.map((d) => (
               <div
                 key={d}
                 className={`text-resize-handle dir-${d}`}
-                title="调整阅读宽度，高度随内容生长"
-                onPointerDown={(e) => onTextResizeDown(e, d)}
+                title="调整备注阅读宽度，不改变核心大小"
+                onPointerDown={(e) => onCaptionResizeDown(e, d)}
               />
             ))}
         </>
       )}
     </div>
+  );
+}
+
+function CaptionExpandToggle({ checked, onChange }: { checked: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <label className="caption-expand-toggle" onPointerDown={(e) => e.stopPropagation()}>
+      <input
+        type="checkbox"
+        checked={checked}
+        aria-label="常驻展开"
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      常驻展开
+    </label>
   );
 }
 

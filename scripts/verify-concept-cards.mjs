@@ -38,6 +38,8 @@ try {
   assert.ok(box.width < 180 && box.height < 80, "旧宽高中的留白不影响紧凑概念呈现");
   assert.equal(await card.locator(".concept-core").evaluate(el => getComputedStyle(el).textAlign), "center");
   await card.click();
+  assert.equal(await card.locator(".core-resize-handle").count(), 4, "普通卡也有四角缩放");
+  assert.equal(await card.locator(".connect-handle").evaluate((el) => getComputedStyle(el).right), "-24px");
   await card.getByRole("button", { name: "添加备注", exact: false }).click();
   const body = card.getByRole("textbox", { name: "卡片正文", exact: true });
   const note = card.getByRole("textbox", { name: "卡片备注", exact: true });

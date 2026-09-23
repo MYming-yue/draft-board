@@ -478,6 +478,7 @@ ok("无父卡 Shift+Enter 建独立卡不建边", noParentInfo.edgeCount === edg
 await page.mouse.dblclick(640, 500);
 await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("缩放目标", { delay: 3 });
+await page.getByRole("textbox", { name: "卡片备注", exact: true }).fill("用于验证备注宽度与主体独立缩放。");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
 const rszId = await page.evaluate(() => window.__state.file.nodes.find((n) => n.markdown === "缩放目标").id);
@@ -488,7 +489,7 @@ ok("文本卡只显示左右阅读宽度手柄", (await page.locator(`[data-node
 const rsz0 = await page.evaluate((id) => {
   const n = window.__state.file.nodes.find((x) => x.id === id);
   const el = document.querySelector(`[data-node-id="${id}"]`);
-  return { w: n.w, h: n.h, domH: el.offsetHeight };
+  return { w: n.w, h: n.h, captionW: n.captionW, domH: el.offsetHeight };
 }, rszId);
 const se2 = await page.locator(`[data-node-id="${rszId}"] .text-resize-handle.dir-e`).boundingBox();
 await page.mouse.move(se2.x + se2.width / 2, se2.y + se2.height / 2);
@@ -498,23 +499,24 @@ await page.mouse.up();
 await page.waitForTimeout(250);
 const rsz1 = await page.evaluate((id) => {
   const n = window.__state.file.nodes.find((x) => x.id === id);
-  return { w: n.w, h: n.h };
+  return { w: n.w, h: n.h, captionW: n.captionW };
 }, rszId);
-const dw = rsz1.w - rsz0.w;
+const dw = rsz1.captionW - (rsz0.captionW ?? 320);
 
-ok("拖动调整阅读宽度，高度自适应", dw > 30 && rsz1.h === null);
-ok("宽度变化对应拖动距离", Math.abs(dw - 60) < 8);
-ok("文本缩放单 resizeNode 步骤", await page.evaluate(() => {
+ok("拖动只调整备注阅读宽度，主体尺寸不变", dw > 30 && rsz1.w === rsz0.w && rsz1.h === rsz0.h);
+const resizeZoom = await page.evaluate(() => window.__state.file.board.view.zoom);
+ok("宽度变化对应拖动距离", Math.abs(dw - 60 / resizeZoom) < 2);
+ok("备注宽度以单个 setCaptionWidth 操作提交", await page.evaluate(() => {
   const h = window.__state.file.history;
-  return h[h.length - 1].label === "调整尺寸" && h[h.length - 1].ops.length === 1 && h[h.length - 1].ops[0].op === "resizeNode";
+  return h[h.length - 1].ops.length === 1 && h[h.length - 1].ops[0].op === "setCaptionWidth";
 }));
 await page.keyboard.press("Control+z");
 await page.waitForTimeout(200);
 const rsz2 = await page.evaluate((id) => {
   const n = window.__state.file.nodes.find((x) => x.id === id);
-  return { w: n.w, h: n.h };
+  return { w: n.w, h: n.h, captionW: n.captionW };
 }, rszId);
-ok("Ctrl+Z 恢复", rsz2.w === rsz0.w && rsz2.h === rsz0.h);
+ok("Ctrl+Z 恢复", rsz2.w === rsz0.w && rsz2.h === rsz0.h && rsz2.captionW === rsz0.captionW);
 // 显式小 h + 长文 → min-height 语义自动撑高不裁切
 // （undo 会清空选择，需先重新点选卡片）
 const rszBox2 = await page.locator(`[data-node-id="${rszId}"]`).boundingBox();
@@ -588,7 +590,7 @@ ok("caption 写入 image 节点 markdown 字段", await page.evaluate((id) => {
 await page.mouse.dblclick(820, 500);
 await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
 ok("编辑态出现插入工具条", (await page.locator(".insert-bar").count()) === 1);
-await page.keyboard.insertText("普通");
+await page.locator(".node-editor:not(.formula-caption-editor)").fill("普通");
 await page.keyboard.press("Home");
 await page.keyboard.press("Shift+End");
 await page.locator('.insert-bar button[title^="粗体"]').click();
@@ -914,13 +916,14 @@ const spM = await ensureSpot();
 await page.mouse.dblclick(spM.x, spM.y);
 await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
 await page.keyboard.insertText("说明文字 $x^2$ 结尾");
+await page.getByRole("textbox", { name: "卡片备注", exact: true }).fill("混合公式卡的独立备注。");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(250);
 const mId = await page.evaluate(() => window.__state.file.nodes.find((n) => (n.markdown ?? "").startsWith("说明文字")).id);
 await page.locator(`[data-node-id="${mId}"]`).click();
 await page.waitForTimeout(150);
 const mK0 = await katexW(mId);
-const mW0 = await page.evaluate(id => window.__state.file.nodes.find(n => n.id === id).w, mId);
+const mW0 = await page.evaluate(id => window.__state.file.nodes.find(n => n.id === id).captionW ?? 320, mId);
 const mse = await page.locator(`[data-node-id="${mId}"] .text-resize-handle.dir-e`).boundingBox();
 await page.mouse.move(mse.x + mse.width / 2, mse.y + mse.height / 2);
 await page.mouse.down();
@@ -928,7 +931,7 @@ await page.mouse.move(mse.x + mse.width / 2 + 140, mse.y + mse.height / 2 + 90, 
 await page.mouse.up();
 await page.waitForTimeout(300);
 const mK1 = await katexW(mId);
-const mW1 = await page.evaluate(id => window.__state.file.nodes.find(n => n.id === id).w, mId);
+const mW1 = await page.evaluate(id => window.__state.file.nodes.find(n => n.id === id).captionW, mId);
 ok("混合卡调整阅读宽度", mW1 > mW0 + 80);
 ok("混合卡拖角：公式字号不变", Math.abs(mK1 - mK0) < 2);
 

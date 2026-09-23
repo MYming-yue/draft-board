@@ -205,6 +205,10 @@ body,
   line-height: 1.55;
   user-select: none;
 }
+.node-card.editing {
+  /* 高于画布内的卡片手柄、连线编辑框和对齐辅助线。 */
+  z-index: 10;
+}
 .node-card.selected {
   border-color: var(--selection);
   box-shadow: 0 0 0 3px rgba(91, 108, 255, 0.18), var(--card-shadow);
@@ -543,6 +547,7 @@ body,
   border-color: var(--selection);
 }
 .insert-panel {
+  max-width: 420px;
   display: flex;
   flex-wrap: wrap;
   gap: 3px;

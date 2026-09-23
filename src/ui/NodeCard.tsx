@@ -16,6 +16,7 @@ import {
 } from "./formulaLayout";
 import { pureFormulaKind, renderMarkdown } from "./markdown";
 import { orderedListSnippet } from "./orderedList";
+import { readGreekHistory, rememberGreek, sortedGreek } from "./greekPalette";
 
 export const MAX_W = 800;
 /** 阅读态默认最多显示的备注行数；编辑区同样为该行数。 */
@@ -119,8 +120,36 @@ const MD_BTN: { label: string; title: string; make: MakeSnippet }[] = [
     },
   },
 ];
-const GREEK = "α β γ δ ε θ λ μ π σ φ ω Δ Σ Ω".split(" ");
 const BLOCKS: { label: string; title: string; snip: Snip }[] = [
+  ...[
+    ["|x|", "绝对值", "\\left|x\\right|"],
+    ["x̄", "平均值横线", "\\overline{x}"],
+    ["‖x‖", "范数", "\\left\\lVert x\\right\\rVert"],
+    ["向量", "向量", "\\vec{x}"],
+    ["x̂", "帽子符号", "\\hat{x}"],
+    ["ẋ", "时间导数", "\\dot{x}"],
+    ["d/dx", "导数", "\\frac{d x}{d t}"],
+    ["lim", "极限", "\\lim_{x\\to 0}"],
+    ["∏", "连乘", "\\prod_{x=1}^{n}"],
+    ["log", "对数", "\\log_{a}{x}"],
+    ["cases", "分段函数", "\\begin{cases} x & t>0 \\\\ 0 & t\\le 0 \\end{cases}"],
+    ["单位", "正体单位或化学式", "\\mathrm{x}"],
+    ["→", "反应箭头与条件", "\\xrightarrow{x}"],
+    ["⇌", "可逆反应", "\\rightleftharpoons"],
+    ["±", "正负号", "\\pm "],
+    ["×", "乘号", "\\times "],
+    ["·", "点乘", "\\cdot "],
+    ["≈", "约等于", "\\approx "],
+    ["≠", "不等于", "\\ne "],
+    ["≤", "小于等于", "\\le "],
+    ["≥", "大于等于", "\\ge "],
+    ["∞", "无穷大", "\\infty "],
+    ["°", "角度", "^{\\circ}"],
+  ].map(([label, title, text]) => {
+    const placeholder = text.indexOf("{x}") >= 0 ? text.indexOf("{x}") + 1 : text.indexOf("x");
+    return { label, title: `${title} ${text}`, snip: placeholder >= 0
+      ? { text, cur: placeholder, curEnd: placeholder + 1 } : { text, cur: text.length } };
+  }),
   { label: "a/b", title: "分式 \\frac{a}{b}", snip: { text: "\\frac{}{}", cur: 6 } },
   { label: "√x", title: "根式 \\sqrt{x}", snip: { text: "\\sqrt{}", cur: 6 } },
   { label: "√[n]", title: "n 次根式 \\sqrt[n]{x}", snip: { text: "\\sqrt[]{}", cur: 6 } },
@@ -147,6 +176,8 @@ export function NodeCard(p: NodeCardProps) {
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [liveScale, setLiveScale] = useState<number | null>(null);
   const [showBlocks, setShowBlocks] = useState(false);
+  const [showGreek, setShowGreek] = useState(false);
+  const [greekHistory, setGreekHistory] = useState<string[]>(readGreekHistory);
   const composing = useRef(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const captionRef = useRef<HTMLTextAreaElement>(null);
@@ -379,6 +410,7 @@ export function NodeCard(p: NodeCardProps) {
     <div
       className={[
         "node-card",
+        p.editing ? "editing" : "",
         !isImage && !p.editing && !formulaKind ? "concept-card" : "",
         `accent-${accent}`,
         !isImage && !p.editing ? "has-core" : "",
@@ -417,10 +449,17 @@ export function NodeCard(p: NodeCardProps) {
           <button
             type="button"
             className={showBlocks ? "active" : ""}
-            title="公式积木面板（分式/根式/上下标/希腊字母/求和/积分/矩阵…）"
-            onClick={() => setShowBlocks((v) => !v)}
+            title="公式积木面板（分式/绝对值/平均值/求和/积分/矩阵…）"
+            aria-label="公式积木面板"
+            aria-expanded={showBlocks}
+            onClick={() => { setShowBlocks((v) => !v); setShowGreek(false); }}
           >
             ∑▾
+          </button>
+          <button type="button" title="希腊字母（最近使用优先）" aria-label="希腊字母积木面板" aria-expanded={showGreek}
+            className={showGreek ? "active" : ""}
+            onClick={() => { setGreekHistory(readGreekHistory()); setShowGreek(v => !v); setShowBlocks(false); }}>
+            αβ▾
           </button>
         </div>
       )}
@@ -431,9 +470,16 @@ export function NodeCard(p: NodeCardProps) {
               {b.label}
             </button>
           ))}
-          {GREEK.map((g) => (
-            <button key={g} type="button" title={`希腊字母 ${g}`} onClick={() => applySnippet({ text: g, cur: 1 })}>
-              {g}
+        </div>
+      )}
+      {p.editing && showGreek && (
+        <div className="insert-panel" aria-label="希腊字母" onPointerDown={e => e.preventDefault()}>
+          {sortedGreek(greekHistory).map(({ symbol, name }) => (
+            <button key={symbol} type="button" title={`${symbol} ${name}`} onClick={() => {
+              applySnippet({ text: symbol, cur: symbol.length });
+              setGreekHistory(rememberGreek(symbol));
+            }}>
+              {symbol}
             </button>
           ))}
         </div>

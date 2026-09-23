@@ -63,6 +63,22 @@ try {
   await page.screenshot({path:"artifacts/reciprocal-arrows.png"});
   const [download]=await Promise.all([page.waitForEvent("download"),page.getByRole("button",{name:"保存",exact:true}).click()]);
   assert.deepEqual(parseBoard(readFileSync(await download.path())).file.edges,edges);
+  for (const zoom of [1, 0.7]) {
+    file.board.view.zoom = zoom;
+    file.nodes = [
+      { id: "n_nodeaa", type: "text", markdown: "纵向连接不再拐弯", x: 160, y: 120, w: 400 },
+      { id: "n_nodebb", type: "text", markdown: "纵向连接不再拐弯", x: 160, y: 280, w: 400 },
+    ];
+    file.edges = [{ id: "e_vertical", kind: "association", from: "n_nodebb", to: "n_nodeaa", directed: true }];
+    const [verticalChooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "打开", exact: true }).click()]);
+    await verticalChooser.setFiles({ name: "vertical.draft", mimeType: "application/octet-stream", buffer: Buffer.from(serializeBoard(file, {})) });
+    await page.locator('[data-edge-id="e_vertical"]').waitFor({ state: "attached" });
+    await page.evaluate(() => document.fonts.ready);
+    const path = page.locator('[data-edge-id="e_vertical"] .edge-path');
+    const xs = await path.evaluate(el => [0, .25, .5, .75, 1].map(t => el.getPointAtLength(el.getTotalLength() * t).x));
+    assert.ok(Math.max(...xs) - Math.min(...xs) < 0.01, "纵向连线整条路径保持竖直");
+    await page.screenshot({ path: `artifacts/vertical-arrow-${zoom}.png` });
+  }
   assert.deepEqual(errors,[]);
   console.log("ASSOCIATION EDGES PASS: replacement, undo, reverse pair, separate paths, save");
 } finally { await browser?.close(); server.kill(); }

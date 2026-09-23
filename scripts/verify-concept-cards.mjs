@@ -43,6 +43,57 @@ try {
   await card.getByRole("button", { name: "添加备注", exact: false }).click();
   const body = card.getByRole("textbox", { name: "卡片正文", exact: true });
   const note = card.getByRole("textbox", { name: "卡片备注", exact: true });
+  async function verifyEditingOnTop(suffix) {
+    const other = page.locator('[data-node-id="n_concept2"]');
+    const originalStyle = await other.getAttribute("style");
+    await other.evaluate(el => {
+      el.style.left = "110px";
+      el.style.top = "200px";
+    });
+    try {
+      const hit = await other.evaluate(el => {
+        const box = el.getBoundingClientRect();
+        return document.elementFromPoint(box.x + 10, box.y + 10)?.closest(".node-card")?.getAttribute("data-node-id");
+      });
+      assert.equal(hit, "n_concept1", "重叠区域命中编辑卡片，而非后面的卡片");
+      mkdirSync("artifacts", { recursive: true });
+      await page.screenshot({ path: `artifacts/editing-top-${suffix}.png` });
+    } finally {
+      await other.evaluate((el, style) => el.setAttribute("style", style), originalStyle);
+    }
+  }
+  await verifyEditingOnTop("default");
+  await card.getByRole("button", { name: "希腊字母积木面板", exact: true }).click();
+  await body.fill("");
+  await card.getByTitle("τ tau", { exact: true }).click();
+  assert.equal(await body.inputValue(), "τ");
+  const greekPanel = card.locator('[aria-label="希腊字母"]');
+  assert.equal(await greekPanel.locator("button").first().textContent(), "τ");
+  await note.fill("");
+  await card.getByTitle("α alpha", { exact: true }).click();
+  assert.equal(await note.inputValue(), "α", "希腊字母插入当前备注字段");
+  assert.equal(await greekPanel.locator("button").first().textContent(), "α");
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("draft-board.greek-recent.v1"))), ["α", "τ"]);
+  await page.screenshot({ path: "artifacts/greek-palette.png" });
+  await card.getByRole("button", { name: "公式积木面板", exact: true }).click();
+  assert.equal(await greekPanel.count(), 0, "两个面板互斥");
+  await body.fill("$$");
+  await body.press("End");
+  await card.getByRole("button", { name: "|x|", exact: true }).click();
+  await body.pressSequentially("a");
+  assert.equal(await body.inputValue(), "$$\\left|a\\right|", "绝对值占位符可直接替换");
+  await body.fill("$$");
+  await body.press("End");
+  await card.getByRole("button", { name: "x̄", exact: true }).click();
+  await body.pressSequentially("v");
+  assert.equal(await body.inputValue(), "$$\\overline{v}");
+  await body.fill("$$");
+  await body.press("End");
+  await card.getByRole("button", { name: "→", exact: true }).click();
+  await body.pressSequentially("t");
+  assert.equal(await body.inputValue(), "$$\\xrightarrow{t}", "替换条件占位符不损坏箭头命令");
+  await page.screenshot({ path: "artifacts/formula-palette.png" });
+  await card.getByRole("button", { name: "公式积木面板", exact: true }).click();
   await body.fill("能量守恒：核心表达");
   await note.fill("1. 定义系统\n2. 描述对象\n");
   await note.press("Control+End");
@@ -50,6 +101,7 @@ try {
   await note.pressSequentially("提出预测");
   assert.equal(await note.inputValue(), "1. 定义系统\n2. 描述对象\n3. 提出预测");
   await note.press("Control+Enter");
+  assert.equal(await card.evaluate(el => getComputedStyle(el).zIndex), "auto", "提交后恢复原层级");
   await card.locator(".node-caption").waitFor();
   const saved = await page.evaluate(() => structuredClone(window.__state.file));
   assert.equal(saved.history.at(-1).ops.length, 2, "主体和备注同一步提交");
@@ -95,6 +147,13 @@ try {
   await page.screenshot({ path: "artifacts/concepts-zoom.png" });
   await card.dblclick();
   await note.fill("对象的详细描述与可讨论的证据。".repeat(60));
+  await body.dispatchEvent("compositionstart");
+  await body.dispatchEvent("compositionend", { data: "中文" });
+  await verifyEditingOnTop("zoom-long");
+  await card.getByRole("button", { name: "希腊字母积木面板", exact: true }).click();
+  assert.equal(await card.locator('[aria-label="希腊字母"] button').first().textContent(), "α", "重开面板保留最近使用顺序");
+  await page.screenshot({ path: "artifacts/greek-palette-zoom.png" });
+  await card.getByRole("button", { name: "希腊字母积木面板", exact: true }).click();
   await note.press("Control+Enter");
   await card.locator(".node-caption").waitFor();
   const longNote = await card.evaluate(el => {

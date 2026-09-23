@@ -63,10 +63,18 @@ export function edgeGeometry(
   // 边框到边框：源端 +2、目标端 +6（箭头头部完整落在目标卡外侧，任何角度可见）
   const fromPt = borderPoint(rf, { x: rt.cx, y: rt.cy }, 2);
   const toPt = borderPoint(rt, { x: rf.cx, y: rf.cy }, 6);
-  const dx = Math.max(48, Math.abs(toPt.x - fromPt.x) / 2);
-  const dir = toPt.x >= fromPt.x ? 1 : -1;
-  const c1 = { x: fromPt.x + dx * dir, y: fromPt.y };
-  const c2 = { x: toPt.x - dx * dir, y: toPt.y };
+  // 控制点沿各自连接边的外法线延伸：上下边竖直进出，左右边水平进出。
+  // 不设置最小伸出距离，避免间距很小时控制点越过对端形成回折。
+  const controlAt = (r: ReturnType<typeof rectOf>, pt: { x: number; y: number }, pad: number) => {
+    const horizontal = Math.abs(pt.x - r.cx) / (r.w / 2 + pad)
+      >= Math.abs(pt.y - r.cy) / (r.h / 2 + pad);
+    const reach = Math.abs(horizontal ? toPt.x - fromPt.x : toPt.y - fromPt.y) / 2;
+    return horizontal
+      ? { x: pt.x + Math.sign(pt.x - r.cx) * reach, y: pt.y }
+      : { x: pt.x, y: pt.y + Math.sign(pt.y - r.cy) * reach };
+  };
+  const c1 = controlAt(rf, fromPt, 2);
+  const c2 = controlAt(rt, toPt, 6);
   const d = `M ${fromPt.x} ${fromPt.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${toPt.x} ${toPt.y}`;
   // 三次贝塞尔 t=0.5 中点
   const mid = {

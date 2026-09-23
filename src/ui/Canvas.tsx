@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   makeId,
+  connectAssociationOps,
   replayTo,
   resolveOverlapPos,
   type BoardAsset,
@@ -59,13 +60,14 @@ function keyboardPanDirection(keys: ReadonlySet<PanKey>): { x: number; y: number
 }
 
 interface CanvasProps {
+  structureView: boolean;
   editor: EditorApi;
   fitNonce: number; // 变化时执行「回到全部内容可见」
 }
 
 type ViewLocal = CanvasView;
 
-export function Canvas({ editor, fitNonce }: CanvasProps) {
+export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   const { state, dispatch, commit, commitAssetNode } = editor;
   const { file } = state;
   const readOnly = state.replay.active;
@@ -510,7 +512,7 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
         to: targetId,
         directed: true,
       };
-      commit("建立关联", [{ op: "addEdge", edge, before: null, after: edge }], { nodes: [], edges: [edge.id] });
+      commit("建立关联", connectAssociationOps(file.edges, edge), { nodes: [], edges: [edge.id] });
       setEditingLabelId(edge.id);
     };
     window.addEventListener("pointermove", move);
@@ -542,15 +544,20 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
   };
 
   // ---- 文本提交 ----
-  const onCommitText = (nodeId: string, markdown: string, caption?: string) => {
+  const onCommitText = (nodeId: string, markdown: string, caption?: string, captionExpanded?: boolean) => {
     const node = file.nodes.find((n) => n.id === nodeId);
     dispatch({ type: "setEditing", id: null });
     if (!node) return;
     const ops: Op[] = [];
     const textChanged = node.markdown !== markdown;
+    const captionChanged = node.type === "text" && caption !== undefined && (node.caption ?? "") !== caption;
+    const expandedChanged = captionExpanded !== undefined && Boolean(node.captionExpanded) !== captionExpanded;
     if (textChanged) ops.push({ op: "updateNodeText", nodeId, before: null, after: { markdown } });
-    if (node.type === "text" && caption !== undefined && (node.caption ?? "") !== caption) {
-      ops.push({ op: "updateNodeCaption", nodeId, before: null, after: { caption: caption.trim() ? caption : null } });
+    if (captionChanged) {
+      ops.push({ op: "updateNodeCaption", nodeId, before: null, after: { caption: caption!.trim() ? caption! : null } });
+    }
+    if (expandedChanged) {
+      ops.push({ op: "setCaptionExpanded", nodeId, before: null, after: { expanded: captionExpanded! } });
     }
     if (!ops.length) return;
     // 成为/保持纯公式：外框写成公式字形×scale + chrome，避免默认 240 宽留白
@@ -562,17 +569,17 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
         const scale =
           prevKind && node.h != null && prevNat ? formulaScaleFromCardW(prevNat.w, node.w) : 1;
         const box = formulaBoxFromNatural(nat, scale);
-        if (Math.abs(box.w - node.w) > 0.5 || Math.abs(box.h - (node.h ?? 0)) > 0.5) {
+        if (Math.abs(box.w - node.w) > 0.5 || Math.abs(box.h - (node.h ?? 0)) > 0.5 || node.coreScale) {
           ops.push({
             op: "resizeNode",
             nodeId,
-            before: { w: node.w, h: node.h ?? null },
-            after: { w: Math.round(box.w), h: Math.round(box.h) },
+            before: null,
+            after: { w: Math.round(box.w), h: Math.round(box.h), coreScale: null },
           });
         }
       }
     }
-    commit(textChanged ? "修改文本" : "修改公式备注", ops);
+    commit(textChanged ? "修改文本" : captionChanged ? "修改公式备注" : "设置备注展开", ops);
   };
 
   // ---- 图片导入（粘贴/拖入共用；需求 §F05：≤5MB、PNG/JPEG、进 assets） ----
@@ -872,13 +879,17 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
     ]);
   };
 
-  const onResizeTextEnd = (nodeId: string, w: number, h: number) => {
+  const onResizeTextEnd = (nodeId: string, w: number, h: number | null, coreScale?: number | null) => {
     const node = file.nodes.find((n) => n.id === nodeId);
     if (!node) return;
-    const formula = node.type === "text" && Boolean(pureFormulaKind(node.markdown ?? ""));
-    commit(formula ? "缩放公式" : "调整尺寸", [
-      { op: "resizeNode", nodeId, before: { w: node.w, h: node.h ?? null }, after: { w, h } },
-    ]);
+    const after: { w: number; h: number | null; coreScale?: number | null } = { w, h };
+    if (coreScale !== undefined) after.coreScale = coreScale;
+    commit(coreScale ? "缩放核心" : "缩放公式", [{ op: "resizeNode", nodeId, before: null, after }]);
+  };
+  const onResizeCaptionWidth = (nodeId: string, captionW: number) => {
+    const node = file.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    commit("调整备注宽度", [{ op: "setCaptionWidth", nodeId, before: null, after: { captionW } }]);
   };
 
   // ---- 图片等比缩放（需求 §F05）：四角手柄拖拽，松手一个 resizeNode op（w,h 都写） ----
@@ -932,6 +943,7 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
         />
         {nodes.map((n) => (
           <NodeCard
+            hideCaptions={structureView}
             key={n.id}
             node={n}
             selected={state.selection.nodes.includes(n.id)}
@@ -948,6 +960,7 @@ export function Canvas({ editor, fitNonce }: CanvasProps) {
             onStartEdit={(id) => dispatch({ type: "setEditing", id })}
             onCancelEdit={() => dispatch({ type: "setEditing", id: null })}
             onResizeTextEnd={onResizeTextEnd}
+            onResizeCaptionWidth={onResizeCaptionWidth}
             onImageAspect={onImageAspect}
             onResizeImageEnd={onResizeImageEnd}
           />

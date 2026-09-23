@@ -205,6 +205,10 @@ body,
   line-height: 1.55;
   user-select: none;
 }
+.node-card.editing {
+  /* 高于画布内的卡片手柄、连线编辑框和对齐辅助线。 */
+  z-index: 10;
+}
 .node-card.selected {
   border-color: var(--selection);
   box-shadow: 0 0 0 3px rgba(91, 108, 255, 0.18), var(--card-shadow);
@@ -224,20 +228,51 @@ body,
 }
 .node-rendered > :first-child { margin-top: 0; }
 .node-rendered > :last-child { margin-bottom: 0; }
+.concept-core {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  min-width: 0;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.node-editor.core-editor {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  field-sizing: content;
+  width: auto;
+  min-width: 100%;
+}
+.concept-core > ul, .concept-core > ol, .concept-core > pre, .concept-core > blockquote {
+  text-align: left;
+}
+.concept-card .node-caption { text-align: left; font-weight: 400; }
+.core-field-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.concept-card .concept-core h1, .concept-card .concept-core h2, .concept-card .concept-core h3 { font-size: inherit; }
+.node-card.has-core,
 .node-card.formula-fit {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
 }
+.core-stage,
 .formula-stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 100%;
 }
-.formula-caption { width: 100%; }
+.formula-caption,
+.has-core .node-caption {
+  width: 100%;
+  align-self: stretch;
+}
 .formula-caption-field {
   display: block;
   border-top: 1px dashed var(--card-border);
@@ -245,6 +280,25 @@ body,
   margin-top: 4px;
   font-size: 12px;
   color: var(--text-dim);
+}
+.caption-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.caption-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.caption-expand-toggle input {
+  margin: 0;
 }
 .formula-caption-field .caption-editor { margin-top: 4px; }
 .formula-caption-button {
@@ -276,6 +330,7 @@ body,
   margin: 0;
   overflow: visible;
 }
+.core-resize-handle,
 .formula-resize-handle {
   position: absolute;
   width: 12px;
@@ -285,9 +340,13 @@ body,
   border-radius: 3px;
   z-index: 4;
 }
+.core-resize-handle.corner-nw,
 .formula-resize-handle.corner-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.core-resize-handle.corner-ne,
 .formula-resize-handle.corner-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.core-resize-handle.corner-sw,
 .formula-resize-handle.corner-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.core-resize-handle.corner-se,
 .formula-resize-handle.corner-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
 .node-rendered h1 { font-size: 17px; margin: 4px 0; }
 .node-rendered h2 { font-size: 15.5px; margin: 4px 0; }
@@ -352,7 +411,7 @@ body,
 
 .connect-handle {
   position: absolute;
-  right: -7px;
+  right: -24px;
   top: 50%;
   transform: translateY(-50%);
   width: 12px;
@@ -445,6 +504,13 @@ body,
   font-size: 13px;
   color: var(--text-dim);
 }
+.node-caption.caption-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 15; /* 与 CAPTION_MAX_LINES 保持一致 */
+  max-height: calc(1.55em * 15);
+  overflow: hidden;
+}
 .caption-editor {
   margin-top: 8px;
   font-size: 13px;
@@ -481,6 +547,7 @@ body,
   border-color: var(--selection);
 }
 .insert-panel {
+  max-width: 420px;
   display: flex;
   flex-wrap: wrap;
   gap: 3px;

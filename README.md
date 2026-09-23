@@ -7,7 +7,7 @@
 
 A local-first, editable whiteboard for notes, equations, and connected thinking. Built for people and coding agents to work on the same portable file.
 
-Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown、LaTeX 公式和图片组成卡片，用连线表达关系，在草稿成熟后继续整理，而不必一开始就决定文档的章节结构。当前为 **0.1 早期版本**，界面以简体中文为主，主要面向桌面 Chrome / Edge。
+Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown、LaTeX 公式和图片组成卡片，用连线表达关系，在草稿成熟后继续整理，而不必一开始就决定文档的章节结构。当前为 **0.2.0 早期版本**，界面以简体中文为主，主要面向桌面 Chrome / Edge。
 
 ## 为什么做这个项目
 
@@ -20,7 +20,10 @@ Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown�
 ## 现在可以做什么
 
 - 在无限画布上创建、移动、缩放和多选卡片，建立父子分支与普通关联线。
-- 编辑 Markdown 和行内 / 块级 LaTeX；纯公式卡紧凑居中，可独立添加变量说明等备注。
+- 同方向的有向关联重复连接会覆盖；双向关联使用分离曲线，避免箭头和说明重叠。
+- 核心表达与备注分层：概念、主张和公式居中呈现，卡片贴合内容；详细解释默认显示在下方备注区。
+- 一键切换结构视图，暂时隐藏备注；恢复后完整显示，不改变卡片位置与保存内容。
+- 编辑 Markdown 和行内 / 块级 LaTeX；有序列表按钮延续当前列表编号。
 - 粘贴或拖入 PNG / JPEG 图片，并为图片添加说明。
 - 拖动时自动吸附附近卡片的边缘或中轴线，显示对齐辅助线；搜索范围随目标卡片大小调整。
 - 将父子分支整理为向右展开的树状布局。
@@ -60,7 +63,8 @@ Windows 用户可运行 `安装桌面版.bat`，按浏览器提示安装 PWA。�
 | 框选卡片 | `Shift+左键`拖动 |
 | 换父节点 | `Alt` 拖动卡片到目标父卡片 |
 | 保存 | `Ctrl+S` 或工具栏保存按钮 |
-| 编辑公式备注 | 选中公式卡，点击“添加备注”或“编辑备注” |
+| 编辑卡片备注 | 选中卡片，点击“添加备注”或“编辑备注” |
+| 查看整体结构 | 点击“结构视图”隐藏备注，点击“显示备注”恢复 |
 | 提交 / 取消卡片编辑 | `Ctrl+Enter` / `Esc` |
 
 首次保存选择文件后，支持 File System Access API 的浏览器可回写原文件；其他浏览器使用下载方式。重要内容请保存为 `.draft`，不要只依赖页面状态。默认保存包含历史，分享前可选择只分享当前草稿。
@@ -90,7 +94,7 @@ node node_modules/playwright-core/cli.js install chromium
 npm run check
 ```
 
-`check` 会依次执行类型检查与构建、单元测试、CLI 回归和四组真实浏览器检查。Linux 首次配置浏览器可使用 `install --with-deps chromium`。GitHub Actions 使用同一入口。
+`check` 会依次执行类型检查与构建、单元测试、CLI 回归和六组真实浏览器检查。Linux 首次配置浏览器可使用 `install --with-deps chromium`。GitHub Actions 使用同一入口。
 
 ## 当前边界
 

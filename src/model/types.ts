@@ -33,9 +33,12 @@ export interface BoardNode {
   assetId?: string; // type=image 必填，^a_...
   x: number;
   y: number;
-  w: number; // >0
+  w: number; // >0；文本/公式卡描述核心区外框
   h?: number | null; // null/缺省 = 高度随内容自适应
   accent?: Accent;
+  captionExpanded?: boolean; // true = 阅读态常驻展开备注；缺省或 false = 未选中时截断
+  coreScale?: number; // 普通文本卡核心字号比例，缺省 1；纯公式卡由 w/h 反推，忽略此字段
+  captionW?: number; // 备注阅读宽度；缺省时有备注则至少 220，且不小于核心区宽
 }
 
 export interface BoardEdge {
@@ -71,8 +74,15 @@ export type Op =
   | { op: "updateNodeText"; nodeId: string; before: { markdown: string } | null; after: { markdown: string } }
   | { op: "updateNodeCaption"; nodeId: string; before: { caption: string | null } | null; after: { caption: string | null } }
   | { op: "moveNode"; nodeId: string; before: { x: number; y: number } | null; after: { x: number; y: number } }
-  | { op: "resizeNode"; nodeId: string; before: { w: number; h: number | null } | null; after: { w: number; h: number | null } }
+  | {
+      op: "resizeNode";
+      nodeId: string;
+      before: { w: number; h: number | null; coreScale?: number | null } | null;
+      after: { w: number; h: number | null; coreScale?: number | null };
+    }
   | { op: "setNodeAccent"; nodeId: string; before: { accent: Accent } | null; after: { accent: Accent } }
+  | { op: "setCaptionExpanded"; nodeId: string; before: { expanded: boolean } | null; after: { expanded: boolean } }
+  | { op: "setCaptionWidth"; nodeId: string; before: { captionW: number | null } | null; after: { captionW: number | null } }
   | { op: "addEdge"; edge: BoardEdge; before: null; after: BoardEdge }
   | { op: "removeEdge"; edgeId: string; before: BoardEdge | null; after: null }
   | {
@@ -92,6 +102,8 @@ export const OP_NAMES: readonly OpName[] = [
   "moveNode",
   "resizeNode",
   "setNodeAccent",
+  "setCaptionExpanded",
+  "setCaptionWidth",
   "addEdge",
   "removeEdge",
   "updateEdge",

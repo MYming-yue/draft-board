@@ -36,6 +36,12 @@ export function validateNodeShape(n: unknown, path = "node"): ShapeViolation | n
     return v(`${path}.h`, "h 须为 null 或 >0 的数值");
   if (n.accent !== undefined && !ACCENTS.includes(n.accent as never))
     return v(`${path}.accent`, "accent 须为 default|blue|green|amber|red");
+  if (n.captionExpanded !== undefined && typeof n.captionExpanded !== "boolean")
+    return v(`${path}.captionExpanded`, "captionExpanded 须为布尔值");
+  if (n.coreScale !== undefined && (!isNum(n.coreScale) || n.coreScale <= 0))
+    return v(`${path}.coreScale`, "coreScale 须为 >0 的数值");
+  if (n.captionW !== undefined && (!isNum(n.captionW) || n.captionW <= 0))
+    return v(`${path}.captionW`, "captionW 须为 >0 的数值");
   return null;
 }
 
@@ -92,10 +98,21 @@ export function validateOpShape(o: unknown): ShapeViolation | null {
       if (!isStr(o.nodeId) || !ID_PATTERNS.node.test(o.nodeId)) return v("nodeId", "nodeId 须为合法节点 id");
       if (!isObj(after) || !isNum(after.w) || after.w <= 0) return v("after.w", "after.w 须为 >0 的数值");
       if (after.h !== null && (!isNum(after.h) || after.h <= 0)) return v("after.h", "after.h 须为 null 或 >0 的数值");
+      if (after.coreScale !== undefined && after.coreScale !== null && (!isNum(after.coreScale) || after.coreScale <= 0))
+        return v("after.coreScale", "after.coreScale 须为 >0 的数值或 null");
       return null;
     case "setNodeAccent":
       if (!isStr(o.nodeId) || !ID_PATTERNS.node.test(o.nodeId)) return v("nodeId", "nodeId 须为合法节点 id");
       if (!isObj(after) || !ACCENTS.includes(after.accent as never)) return v("after.accent", "after.accent 非法");
+      return null;
+    case "setCaptionExpanded":
+      if (!isStr(o.nodeId) || !ID_PATTERNS.node.test(o.nodeId)) return v("nodeId", "nodeId 须为合法节点 id");
+      if (!isObj(after) || typeof after.expanded !== "boolean") return v("after.expanded", "after.expanded 须为布尔值");
+      return null;
+    case "setCaptionWidth":
+      if (!isStr(o.nodeId) || !ID_PATTERNS.node.test(o.nodeId)) return v("nodeId", "nodeId 须为合法节点 id");
+      if (!isObj(after) || (after.captionW !== null && (!isNum(after.captionW) || after.captionW <= 0)))
+        return v("after.captionW", "after.captionW 须为 >0 的数值或 null");
       return null;
     case "addEdge":
       return validateEdgeShape(o.edge, "edge");

@@ -147,6 +147,47 @@ try {
   await editor.fill("这是一条需要自动换行的变量解释。".repeat(20));
   await page.keyboard.press("Control+Enter");
   assert.ok((await readFormula()).noteInside, "长备注不溢出");
+
+  const longNote = Array.from({ length: 20 }, (_, i) => `备注第 ${i + 1} 行`).join("\n");
+  await card.dblclick();
+  await editor.waitFor();
+  assert.equal(await editor.evaluate((el) => el.rows), 15, "编辑区 15 行");
+  await editor.fill(longNote);
+  await page.keyboard.press("Control+Enter");
+  await page.mouse.click(1120, 700);
+  const clamped = await card.evaluate((el) => {
+    const note = el.querySelector(".formula-caption");
+    return {
+      clamped: note.classList.contains("caption-clamped"),
+      lines: getComputedStyle(note).webkitLineClamp,
+      noteH: note.getBoundingClientRect().height,
+    };
+  });
+  assert.equal(clamped.clamped, true, "未选中时截断备注");
+  assert.equal(clamped.lines, "15");
+  const clampedH = clamped.noteH;
+  await card.click();
+  const selected = await card.evaluate((el) => {
+    const note = el.querySelector(".formula-caption");
+    return { clamped: note.classList.contains("caption-clamped"), noteH: note.getBoundingClientRect().height };
+  });
+  assert.equal(selected.clamped, false, "选中卡片展开备注");
+  assert.ok(selected.noteH > clampedH + 20, "选中后备注高于 15 行截断");
+  await card.getByRole("button", { name: "编辑备注", exact: true }).click();
+  await editor.waitFor();
+  await card.getByRole("checkbox", { name: "常驻展开", exact: true }).check();
+  await page.keyboard.press("Control+Enter");
+  await page.mouse.click(1120, 700);
+  assert.equal(await page.evaluate(() => window.__state.file.nodes[0].captionExpanded), true);
+  const pinned = await card.evaluate((el) => el.querySelector(".formula-caption").classList.contains("caption-clamped"));
+  assert.equal(pinned, false, "常驻展开后未选中仍显示全文");
+  await card.dblclick();
+  await editor.waitFor();
+  await card.getByRole("checkbox", { name: "常驻展开", exact: true }).uncheck();
+  await page.keyboard.press("Control+Enter");
+  await page.mouse.click(1120, 700);
+  assert.equal(await page.evaluate(() => window.__state.file.nodes[0].captionExpanded), undefined);
+
   await card.dblclick();
   await editor.fill("");
   await page.keyboard.press("Control+Enter");
@@ -156,6 +197,25 @@ try {
   await editor.fill(note);
   await page.keyboard.press("Control+Enter");
   await page.mouse.click(1120, 700);
+
+  await card.click();
+  assert.equal(await card.locator(".connect-handle").evaluate((el) => getComputedStyle(el).right), "-24px", "关联圆点在边框外");
+  const beforeLr = await readFormula();
+  const beforeBox = await card.boundingBox();
+  const east = await card.locator(".text-resize-handle.dir-e").boundingBox();
+  assert.ok(east, "有备注时出现左右手柄");
+  await page.mouse.move(east.x + 4, east.y + east.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(east.x + 90, east.y + east.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const afterLr = await readFormula();
+  const afterBox = await card.boundingBox();
+  assert.ok(Math.abs(afterLr.w - beforeLr.w) < 1 && Math.abs(afterLr.h - beforeLr.h) < 1, "左右手柄不改变公式大小");
+  assert.ok(afterBox.width > beforeBox.width + 20, "左右手柄加宽外框");
+  assert.equal(typeof (await page.evaluate(() => window.__state.file.nodes[0].captionW)), "number");
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(100);
 
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "保存", exact: true }).click()]);
   const saved = await download.path();

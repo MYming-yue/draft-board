@@ -16,6 +16,7 @@ export default function App() {
   const editor = useEditor();
   const { state, dispatch } = editor;
   const [fitNonce, setFitNonce] = useState(0);
+  const [structureView, setStructureView] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   const reportError = useCallback(
@@ -167,9 +168,11 @@ export default function App() {
         onExportStrip={() => void doExportStrip()}
         onExportPng={() => void doExportPng()}
         onFit={onFit}
+        structureView={structureView}
+        onToggleStructure={() => setStructureView((v) => !v)}
         onInstall={installPrompt ? () => void doInstall() : undefined}
       />
-      <Canvas editor={editor} fitNonce={fitNonce} />
+      <Canvas editor={editor} fitNonce={fitNonce} structureView={structureView} />
       <ReplayBar editor={editor} />
     </div>
   );

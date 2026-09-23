@@ -1,7 +1,7 @@
 {
   "name": "draft-board",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first whiteboard for Markdown, equations, images, and connected thinking. Editable by people and agents.",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/MYming-yue/draft-board.git" },
@@ -15,8 +15,10 @@
     "smoke:formula": "node scripts/verify-formula-cards.mjs",
     "smoke:alignment": "node scripts/verify-alignment-snap.mjs",
     "smoke:cli": "node scripts/verify-agent-cli.mjs",
+    "smoke:concept": "node scripts/verify-concept-cards.mjs",
+    "smoke:edges": "node scripts/verify-association-edges.mjs",
     "smoke:pwa": "node scripts/verify-pwa-file-launch.mjs",
-    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:pwa",
+    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:concept && npm run smoke:edges && npm run smoke:pwa",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -130,12 +130,16 @@ await ed.click();
 await ed.pressSequentially("# 中心问题\n如何提高复习效率？", { delay: 5 });
 await page.keyboard.press("Control+Enter");
 ok("双击建卡+Ctrl+Enter 提交", (await page.locator(".node-card").count()) === 1);
+await page.waitForFunction(() => [...document.querySelectorAll('.node-card')].every(el => el.getBoundingClientRect().height < 150));
+await page.waitForTimeout(100); // 让 ResizeObserver 将阅读态尺寸交给分支落点计算。
 
 // 步骤 2：Tab 连续建两层子卡（三层分支）
 await page.keyboard.press("Tab"); // 第一层
 await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("思路一：**间隔重复**", { delay: 5 });
 await page.keyboard.press("Control+Enter");
+await page.waitForFunction(() => [...document.querySelectorAll('.node-card')].every(el => el.getBoundingClientRect().height < 150));
+await page.waitForTimeout(100);
 await page.keyboard.press("Tab"); // 在第一层子卡上再 Tab → 第二层
 await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("按 $遗忘曲线$ 安排", { delay: 5 });
@@ -152,6 +156,7 @@ ok("KaTeX 公式渲染", (await page.locator(".node-rendered .katex").count()) >
 // 步骤 4：从根卡连接点拖连线到孙卡，加关系说明
 const cards = page.locator(".node-card");
 const grand = await cards.nth(2).boundingBox();
+ok("拖线目标中心位于视口内", grand.x + grand.width / 2 >= 0 && grand.x + grand.width / 2 < page.viewportSize().width && grand.y + grand.height / 2 >= 0 && grand.y + grand.height / 2 < page.viewportSize().height);
 await cards.nth(0).hover(); // 让连接点出现
 const handleBox = await cards.nth(0).locator(".connect-handle").boundingBox();
 await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2, { steps: 3 });
@@ -838,9 +843,9 @@ ok("纯公式卡四角等比手柄", (await page.locator(`[data-node-id="${fId}"
 ok("纯公式卡无自由比例手柄", (await page.locator(`[data-node-id="${fId}"] .text-resize-handle`).count()) === 0);
 // 放大
 const fse = await page.locator(`[data-node-id="${fId}"] .formula-resize-handle.corner-se`).boundingBox();
-await page.mouse.move(fse.x + 6, fse.y + 6);
+await page.mouse.move(fse.x + fse.width / 2, fse.y + fse.height / 2);
 await page.mouse.down();
-await page.mouse.move(fse.x + 6 + 160, fse.y + 6 + 110, { steps: 6 });
+await page.mouse.move(fse.x + fse.width / 2 + 160, fse.y + fse.height / 2 + 110, { steps: 6 });
 await page.mouse.up();
 await page.waitForTimeout(300);
 const fW1 = await nodeWH(fId);
@@ -859,9 +864,9 @@ ok("缩放公式单 resizeNode 步骤", await page.evaluate(() => {
 }));
 // 缩小
 const fse2 = await page.locator(`[data-node-id="${fId}"] .formula-resize-handle.corner-se`).boundingBox();
-await page.mouse.move(fse2.x + 6, fse2.y + 6);
+await page.mouse.move(fse2.x + fse2.width / 2, fse2.y + fse2.height / 2);
 await page.mouse.down();
-await page.mouse.move(fse2.x + 6 - 90, fse2.y + 6 - 60, { steps: 5 });
+await page.mouse.move(fse2.x + fse2.width / 2 - 90, fse2.y + fse2.height / 2 - 60, { steps: 5 });
 await page.mouse.up();
 await page.waitForTimeout(300);
 const fK2 = await katexW(fId);
@@ -877,9 +882,9 @@ ok("Ctrl+Z 后尺寸与公式大小恢复", fWz.w === fW1.w && fWz.h === fW1.h &
 await page.locator(`[data-node-id="${fId}"]`).click();
 await page.waitForTimeout(150);
 const fse3 = await page.locator(`[data-node-id="${fId}"] .formula-resize-handle.corner-se`).boundingBox();
-await page.mouse.move(fse3.x + 6, fse3.y + 6);
+await page.mouse.move(fse3.x + fse3.width / 2, fse3.y + fse3.height / 2);
 await page.mouse.down();
-await page.mouse.move(fse3.x + 6 - 400, fse3.y + 6 - 300, { steps: 6 });
+await page.mouse.move(fse3.x + fse3.width / 2 - 400, fse3.y + fse3.height / 2 - 300, { steps: 6 });
 await page.mouse.up();
 await page.waitForTimeout(300);
 const minCheck = await page.evaluate((i) => {

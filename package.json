@@ -1,7 +1,7 @@
 {
   "name": "draft-board",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first whiteboard for Markdown, equations, images, and connected thinking. Editable by people and agents.",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/MYming-yue/draft-board.git" },

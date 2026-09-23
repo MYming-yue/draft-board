@@ -1,5 +1,7 @@
 # Draft Board 公开规格
 
+应用版本：0.2.0。文件 `formatVersion` 与批次 `batchVersion` 仍为 1.0，应用版本不等同于文件格式版本。
+
 本文随源码维护，描述当前 `.draft` 格式、Agent 批次和编辑行为。类型的精确载荷定义见 [`src/model/types.ts`](../src/model/types.ts)，运行时校验见 [`validate.ts`](../src/model/validate.ts)。当前没有单独发布可供通用 JSON Schema 校验器加载的 schema 文件；不能把 TypeScript 类型检查当作运行时输入校验。
 
 ## 1. 范围与实现边界

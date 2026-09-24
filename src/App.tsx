@@ -92,24 +92,32 @@ export default function App() {
 
   const doSave = useCallback(async () => {
     if (state.replay.active) return;
+    const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
+    const previous = state.saveState;
     dispatch({ type: "markSaving" });
     try {
-      const handle = await saveDraft(state);
+      const result = await saveDraft(state);
+      if (result.status === "cancelled") {
+        dispatch({ type: "markSaveCancelled", stamp, previous });
+        return;
+      }
+      const handle = result.handle;
       if (handle && handle !== state.fileHandle)
         dispatch({ type: "setHandle", handle, fileName: handle.name });
-      dispatch({ type: "markSaved" });
+      dispatch({ type: "markSaved", stamp });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      dispatch({ type: "markSaveError", message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
+      dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
     }
   }, [state, dispatch]);
 
   const doSaveAs = useCallback(async () => {
+    const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
     try {
-      const handle = await saveDraft(state, { forcePicker: true });
-      if (handle) {
-        dispatch({ type: "setHandle", handle, fileName: handle.name });
-        dispatch({ type: "markSaved" });
+      const result = await saveDraft(state, { forcePicker: true });
+      if (result.status === "saved") {
+        if (result.handle) dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle.name });
+        dispatch({ type: "markSaved", stamp });
       }
     } catch (e) {
       reportError(e);
@@ -150,6 +158,19 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // 浏览器刷新/关闭时保护未落盘修改，也保护仍在输入框中的草稿。
+  const unloadState = useRef(state);
+  unloadState.current = state;
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const current = unloadState.current;
+      if (current.editingId === null && !["dirty", "saving", "error"].includes(current.saveState)) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
   const onFit = useCallback(() => setFitNonce((n) => n + 1), []);
 
   // 调试探针：冒烟脚本只读检查用

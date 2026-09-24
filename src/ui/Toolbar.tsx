@@ -95,18 +95,16 @@ export function Toolbar(p: ToolbarProps) {
       >
         回放
       </button>
-      {single && (
-        <span className="accent-picker" title="强调色">
-          {ACCENTS.map((a) => (
-            <button
-              key={a}
-              className={`accent-dot accent-${a}` + ((single.accent ?? "default") === a ? " active" : "")}
-              title={ACCENT_LABEL[a]}
-              onClick={() => setAccent(a)}
-            />
-          ))}
-        </span>
-      )}
+      <span className={"accent-picker" + (single ? "" : " hidden")} title="强调色" aria-hidden={!single}>
+        {ACCENTS.map((a) => (
+          <button
+            key={a}
+            className={`accent-dot accent-${a}` + ((single?.accent ?? "default") === a ? " active" : "")}
+            title={ACCENT_LABEL[a]}
+            onClick={() => setAccent(a)}
+          />
+        ))}
+      </span>
       <span className="spacer" />
       {state.saveError && <span className="save-error" title={state.saveError}>⚠ {state.saveError}</span>}
       <span className={`save-status ${status.cls}`}>{status.text}</span>

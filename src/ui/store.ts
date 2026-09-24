@@ -20,6 +20,7 @@ import {
 } from "../model";
 
 export type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
+export interface SaveStamp { sessionId: string; editRevision: number }
 
 export interface EditorState {
   file: BoardFile;
@@ -32,8 +33,11 @@ export interface EditorState {
   clipboard: { nodeIds: string[] } | null; // 内部卡片剪贴板（复制粘贴一组卡片）
   fileHandle: FileSystemFileHandle | null;
   fileName: string; // 展示与下载用文件名
+  fileNameTracksBoardName: boolean; // 新建白板首次保存前，建议文件名随白板名变化
   saveState: SaveState;
   saveError: string | null;
+  sessionId: string; // 区分新建/打开后的编辑会话，避免旧保存结果覆盖新白板状态
+  editRevision: number; // 仅持久化内容变化递增；保存完成时核对快照
   replay: { active: boolean; step: number; playing: boolean };
 }
 
@@ -52,8 +56,9 @@ export type Action =
   | { type: "newBoard" }
   | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string }
   | { type: "markSaving" }
-  | { type: "markSaved" }
-  | { type: "markSaveError"; message: string }
+  | { type: "markSaved"; stamp: SaveStamp }
+  | { type: "markSaveCancelled"; stamp: SaveStamp; previous: SaveState }
+  | { type: "markSaveError"; stamp: SaveStamp; message: string }
   | { type: "replayEnter" }
   | { type: "replayExit" }
   | { type: "replaySet"; step: number }
@@ -80,14 +85,21 @@ export function initialEditorState(): EditorState {
     clipboard: null,
     fileHandle: null,
     fileName: "未命名白板.draft",
+    fileNameTracksBoardName: true,
     saveState: "clean",
     saveError: null,
+    sessionId: globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
+    editRevision: 0,
     replay: { active: false, step: 0, playing: false },
   };
 }
 
 function dirtyOf(s: EditorState): SaveState {
   return s.fileHandle ? "dirty" : "dirty";
+}
+
+function matchesSave(s: EditorState, stamp: SaveStamp): boolean {
+  return s.sessionId === stamp.sessionId && s.editRevision === stamp.editRevision;
 }
 
 export function editorReducer(s: EditorState, a: Action): EditorState {
@@ -110,6 +122,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         editingId: a.editingId !== undefined ? a.editingId : s.editingId,
         saveState: dirtyOf(s),
         saveError: null,
+        editRevision: s.editRevision + 1,
       };
     }
     case "commitError":
@@ -123,6 +136,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         blobs: { ...s.blobs, [a.asset.id]: a.bytes },
         blobUrls: { ...s.blobUrls, [a.asset.id]: URL.createObjectURL(blob) },
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "undo": {
@@ -137,6 +151,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         editingId: null,
         selection: { nodes: [], edges: [] },
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "redo": {
@@ -150,6 +165,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         cursor: r.state.history.length,
         redoStack: s.redoStack.slice(0, -1),
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "select":
@@ -173,7 +189,9 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       return {
         ...s,
         file: { ...s.file, board: { ...s.file.board, name: a.name.trim() } },
+        fileName: s.fileNameTracksBoardName ? `${a.name.trim()}.draft` : s.fileName,
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "load": {
@@ -186,6 +204,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         cursor: a.bundle.file.history.length,
         fileHandle: a.handle,
         fileName: a.fileName,
+        fileNameTracksBoardName: false,
         saveState: "clean",
       };
     }
@@ -194,12 +213,17 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       return initialEditorState();
     }
     case "setHandle":
-      return { ...s, fileHandle: a.handle, fileName: a.fileName };
+      return { ...s, fileHandle: a.handle, fileName: a.fileName, fileNameTracksBoardName: false };
     case "markSaving":
       return { ...s, saveState: "saving" };
     case "markSaved":
+      if (!matchesSave(s, a.stamp)) return s;
       return { ...s, saveState: "saved", saveError: null };
+    case "markSaveCancelled":
+      if (!matchesSave(s, a.stamp)) return s;
+      return { ...s, saveState: a.previous };
     case "markSaveError":
+      if (!matchesSave(s, a.stamp)) return s;
       return { ...s, saveState: "error", saveError: a.message };
     case "replayEnter":
       if (s.file.history.length === 0) return s; // 脱历史文件不假装可回放

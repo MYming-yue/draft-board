@@ -74,6 +74,10 @@ try {
   assert.equal(await note.inputValue(), "α", "希腊字母插入当前备注字段");
   assert.equal(await greekPanel.locator("button").first().textContent(), "α");
   assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("draft-board.greek-recent.v1"))), ["α", "τ"]);
+  await card.getByTitle("∇ nabla（梯度算子）", { exact: true }).click();
+  assert.equal(await note.inputValue(), "α∇", "nabla 插入当前备注字段");
+  assert.equal(await greekPanel.locator("button").first().textContent(), "∇");
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("draft-board.greek-recent.v1"))), ["∇", "α", "τ"]);
   await page.screenshot({ path: "artifacts/greek-palette.png" });
   await card.getByRole("button", { name: "公式积木面板", exact: true }).click();
   assert.equal(await greekPanel.count(), 0, "两个面板互斥");
@@ -92,6 +96,11 @@ try {
   await card.getByRole("button", { name: "→", exact: true }).click();
   await body.pressSequentially("t");
   assert.equal(await body.inputValue(), "$$\\xrightarrow{t}", "替换条件占位符不损坏箭头命令");
+  await body.fill("$$a ");
+  await body.press("End");
+  await card.getByRole("button", { name: "∼", exact: true }).click();
+  await body.pressSequentially("b$$");
+  assert.equal(await body.inputValue(), "$$a \\sim b$$", "相似符号积木插入可编辑的 LaTeX 命令");
   await page.screenshot({ path: "artifacts/formula-palette.png" });
   await card.getByRole("button", { name: "公式积木面板", exact: true }).click();
   await body.fill("能量守恒：核心表达");
@@ -101,8 +110,25 @@ try {
   await note.pressSequentially("提出预测");
   assert.equal(await note.inputValue(), "1. 定义系统\n2. 描述对象\n3. 提出预测");
   await note.press("Control+Enter");
-  assert.equal(await card.evaluate(el => getComputedStyle(el).zIndex), "auto", "提交后恢复原层级");
+  assert.equal(await card.evaluate(el => getComputedStyle(el).zIndex), "2", "提交后保持最近操作卡片的层级");
   await card.locator(".node-caption").waitFor();
+  const noteButton = card.getByRole("button", { name: "编辑备注", exact: false });
+  const laterCard = page.locator('[data-node-id="n_concept2"]');
+  const laterStyle = await laterCard.getAttribute("style");
+  const noteButtonBox = await noteButton.boundingBox();
+  await laterCard.evaluate((el, target) => {
+    const box = el.getBoundingClientRect();
+    el.style.left = (parseFloat(el.style.left) + target.x - box.x - 12) + "px";
+    el.style.top = (parseFloat(el.style.top) + target.y - box.y - 12) + "px";
+  }, { x: noteButtonBox.x + noteButtonBox.width / 2, y: noteButtonBox.y + noteButtonBox.height / 2 });
+  const noteHit = await page.evaluate(({ x, y }) =>
+    document.elementFromPoint(x, y)?.closest(".node-card")?.getAttribute("data-node-id"),
+    { x: noteButtonBox.x + noteButtonBox.width / 2, y: noteButtonBox.y + noteButtonBox.height / 2 });
+  assert.equal(noteHit, "n_concept1", "编辑备注入口不被后创建的卡片遮挡");
+  await noteButton.click();
+  assert.equal(await card.getByRole("textbox", { name: "卡片备注", exact: true }).count(), 1);
+  await note.press("Escape");
+  await laterCard.evaluate((el, style) => el.setAttribute("style", style), laterStyle);
   const saved = await page.evaluate(() => structuredClone(window.__state.file));
   assert.equal(saved.history.at(-1).ops.length, 2, "主体和备注同一步提交");
   const coreFont = await card.locator(".concept-core").evaluate(el => getComputedStyle(el).fontSize);
@@ -151,7 +177,7 @@ try {
   await body.dispatchEvent("compositionend", { data: "中文" });
   await verifyEditingOnTop("zoom-long");
   await card.getByRole("button", { name: "希腊字母积木面板", exact: true }).click();
-  assert.equal(await card.locator('[aria-label="希腊字母"] button').first().textContent(), "α", "重开面板保留最近使用顺序");
+  assert.equal(await card.locator('[aria-label="希腊字母"] button').first().textContent(), "∇", "重开面板保留最近使用顺序");
   await page.screenshot({ path: "artifacts/greek-palette-zoom.png" });
   await card.getByRole("button", { name: "希腊字母积木面板", exact: true }).click();
   await note.press("Control+Enter");
@@ -163,8 +189,88 @@ try {
   });
   assert.ok(longNote.inside, "长备注完整包含于外框");
   assert.equal(longNote.font, coreFont, "长备注不放大主体");
+  const stackPage = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  stackPage.on("pageerror", e => errors.push(e.message));
+  await stackPage.addInitScript(() => { delete window.showOpenFilePicker; delete window.showSaveFilePicker; });
+  await stackPage.goto("http://127.0.0.1:" + port);
+  const stackFile = createEmptyBoard("层级回归");
+  stackFile.board.view = { panX: 0, panY: 0, zoom: 1 };
+  stackFile.nodes = [
+    { id: "n_oldcard", type: "text", markdown: "先创建的卡片", x: 100, y: 100, w: 240 },
+    { id: "n_newcard", type: "text", markdown: "后创建的卡片", x: 410, y: 100, w: 240 },
+  ];
+  const [stackChooser] = await Promise.all([
+    stackPage.waitForEvent("filechooser"),
+    stackPage.getByRole("button", { name: "打开", exact: true }).click(),
+  ]);
+  await stackChooser.setFiles({
+    name: "stacking.draft", mimeType: "application/octet-stream",
+    buffer: Buffer.from(serializeBoard(stackFile, {})),
+  });
+  const oldCard = stackPage.locator('[data-node-id="n_oldcard"]');
+  const newCard = stackPage.locator('[data-node-id="n_newcard"]');
+  await oldCard.waitFor();
+  await newCard.click();
+  await oldCard.click();
+  const beforeDrag = await oldCard.boundingBox();
+  const start = { x: beforeDrag.x + beforeDrag.width / 2, y: beforeDrag.y + beforeDrag.height / 2 };
+  await stackPage.mouse.move(start.x, start.y);
+  await stackPage.mouse.down();
+  await stackPage.mouse.move(start.x + 310, start.y, { steps: 10 });
+  await stackPage.mouse.up();
+  async function assertDraggedCardOnTop() {
+    const a = await oldCard.boundingBox();
+    const b = await newCard.boundingBox();
+    const left = Math.max(a.x, b.x);
+    const right = Math.min(a.x + a.width, b.x + b.width);
+    const top = Math.max(a.y, b.y);
+    const bottom = Math.min(a.y + a.height, b.y + b.height);
+    assert.ok(right - left > 20 && bottom - top > 20, "拖动后两张卡片确实重叠");
+    const hit = await stackPage.evaluate(({ x, y }) =>
+      document.elementFromPoint(x, y)?.closest(".node-card")?.getAttribute("data-node-id"),
+      { x: (left + right) / 2, y: (top + bottom) / 2 });
+    assert.equal(hit, "n_oldcard", "最近拖动的旧卡片在新卡片上层");
+  }
+  await assertDraggedCardOnTop();
+  await stackPage.mouse.click(900, 650);
+  assert.equal(await oldCard.evaluate(el => getComputedStyle(el).zIndex), "2", "取消选中后保留最近操作层级");
+  await assertDraggedCardOnTop();
+  await stackPage.screenshot({ path: "artifacts/recent-card-front-default.png" });
+  await stackPage.mouse.move(500, 220);
+  await stackPage.keyboard.down("Control");
+  await stackPage.mouse.wheel(0, -180);
+  await stackPage.keyboard.up("Control");
+  await stackPage.waitForTimeout(200);
+  await assertDraggedCardOnTop();
+  await stackPage.screenshot({ path: "artifacts/recent-card-front-zoom.png" });
+  await stackPage.close();
+  const namingPage = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  namingPage.on("pageerror", e => errors.push(e.message));
+  await namingPage.addInitScript(() => { delete window.showOpenFilePicker; delete window.showSaveFilePicker; });
+  await namingPage.goto("http://127.0.0.1:" + port);
+  await namingPage.locator(".board-name").fill("梯度草稿");
+  const [firstSave] = await Promise.all([
+    namingPage.waitForEvent("download"),
+    namingPage.getByRole("button", { name: "保存", exact: true }).click(),
+  ]);
+  assert.equal(firstSave.suggestedFilename(), "梯度草稿.draft", "新白板首次保存建议使用白板名称");
+  const [namingChooser] = await Promise.all([
+    namingPage.waitForEvent("filechooser"),
+    namingPage.getByRole("button", { name: "打开", exact: true }).click(),
+  ]);
+  await namingChooser.setFiles({
+    name: "磁盘文件.draft", mimeType: "application/octet-stream",
+    buffer: Buffer.from(serializeBoard(stackFile, {})),
+  });
+  await namingPage.locator(".board-name").fill("文件内部标题");
+  const [existingSave] = await Promise.all([
+    namingPage.waitForEvent("download"),
+    namingPage.getByRole("button", { name: "保存", exact: true }).click(),
+  ]);
+  assert.equal(existingSave.suggestedFilename(), "磁盘文件.draft", "打开已有文件后改标题不擅自改文件名");
+  await namingPage.close();
   assert.deepEqual(errors, []);
-  console.log("CONCEPT CARDS PASS: compact core, visible notes, ordered list, atomic edit, structure view, edges, save, undo, zoom");
+  console.log("CONCEPT CARDS PASS: compact core, visible notes, recent-card stacking, ordered list, atomic edit, structure view, edges, save, undo, zoom");
 } finally {
   await browser?.close();
   server.kill();

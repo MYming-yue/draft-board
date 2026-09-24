@@ -123,6 +123,10 @@ body,
   align-items: center;
   margin-left: 6px;
 }
+.accent-picker.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
 .accent-dot {
   width: 16px;
   height: 16px;
@@ -204,6 +208,9 @@ body,
   font-size: 14px;
   line-height: 1.55;
   user-select: none;
+}
+.node-card.front {
+  z-index: 2;
 }
 .node-card.editing {
   /* 高于画布内的卡片手柄、连线编辑框和对齐辅助线。 */
@@ -615,6 +622,7 @@ body,
 /* ---- 框选 ---- */
 .marquee {
   position: absolute;
+  z-index: 9;
   border: 1px dashed var(--selection);
   background: rgba(91, 108, 255, 0.08);
   pointer-events: none;

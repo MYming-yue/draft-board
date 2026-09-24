@@ -29,6 +29,7 @@ interface NodeCardProps {
   hideCaptions: boolean;
   node: BoardNode;
   selected: boolean;
+  front: boolean;
   editing: boolean;
   blobUrl?: string;
   aspect?: number; // 图片原始宽高比（img naturalWidth/naturalHeight，由 onImageAspect 回报）
@@ -139,6 +140,7 @@ const BLOCKS: { label: string; title: string; snip: Snip }[] = [
     ["±", "正负号", "\\pm "],
     ["×", "乘号", "\\times "],
     ["·", "点乘", "\\cdot "],
+    ["∼", "相似符号", "\\sim "],
     ["≈", "约等于", "\\approx "],
     ["≠", "不等于", "\\ne "],
     ["≤", "小于等于", "\\le "],
@@ -411,6 +413,7 @@ export function NodeCard(p: NodeCardProps) {
       className={[
         "node-card",
         p.editing ? "editing" : "",
+        p.front ? "front" : "",
         !isImage && !p.editing && !formulaKind ? "concept-card" : "",
         `accent-${accent}`,
         !isImage && !p.editing ? "has-core" : "",
@@ -432,6 +435,9 @@ export function NodeCard(p: NodeCardProps) {
             : { width: w }),
       }}
       data-node-id={node.id}
+      onClick={(e) => {
+        if (e.ctrlKey && (e.target as HTMLElement).closest("a")) e.preventDefault();
+      }}
       onPointerDown={(e) => p.onCardPointerDown(e, node.id)}
       onPointerUp={(e) => p.onCardPointerUp(e, node.id)}
       onBlur={(e) => {

@@ -57,10 +57,21 @@ export interface BoardAsset {
   bytes: number; // 1..5242880
 }
 
+export interface BoardCollection {
+  id: string; // g_ + 6..32 字符
+  name: string;
+  description?: string;
+  shape: "rectangle" | "ellipse" | "circle";
+  nodeIds: string[]; // 显式成员，同一卡片可以属于多个集合
+  x: number; // 空集合的位置；非空集合边界由成员实测外框派生
+  y: number;
+}
+
 export interface BoardFile {
   formatVersion: string; // 语义化版本，主版本不认识 → E_FORMAT_UNSUPPORTED
   board: BoardMeta;
   nodes: BoardNode[];
+  collections?: BoardCollection[];
   edges: BoardEdge[];
   assets: BoardAsset[];
   history: HistoryStep[]; // append-only；空数组 = 脱历史分享文件
@@ -69,8 +80,11 @@ export interface BoardFile {
 // ---- §2-C 操作词汇表（历史步骤与 Agent 批次共用） ----
 
 export type Op =
+  | { op: "addCollection"; collection: BoardCollection; before: null; after: BoardCollection }
+  | { op: "updateCollection"; collectionId: string; before: BoardCollection | null; after: BoardCollection }
+  | { op: "removeCollection"; collectionId: string; before: BoardCollection | null; after: null }
   | { op: "addNode"; node: BoardNode; before: null; after: BoardNode }
-  | { op: "removeNode"; nodeId: string; before: { node: BoardNode; edges: BoardEdge[] } | null; after: null }
+  | { op: "removeNode"; nodeId: string; before: { node: BoardNode; edges: BoardEdge[]; collections?: BoardCollection[] } | null; after: null }
   | { op: "updateNodeText"; nodeId: string; before: { markdown: string } | null; after: { markdown: string } }
   | { op: "updateNodeCaption"; nodeId: string; before: { caption: string | null } | null; after: { caption: string | null } }
   | { op: "moveNode"; nodeId: string; before: { x: number; y: number } | null; after: { x: number; y: number } }
@@ -95,6 +109,7 @@ export type Op =
 
 export type OpName = Op["op"];
 export const OP_NAMES: readonly OpName[] = [
+  "addCollection", "updateCollection", "removeCollection",
   "addNode",
   "removeNode",
   "updateNodeText",

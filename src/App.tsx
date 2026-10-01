@@ -16,8 +16,17 @@ export default function App() {
   const editor = useEditor();
   const { state, dispatch } = editor;
   const [fitNonce, setFitNonce] = useState(0);
+  const [layoutFit, setLayoutFit] = useState(false);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [layoutResult, setLayoutResult] = useState<string | null>(null);
   const [structureView, setStructureView] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    if (!layoutResult) return;
+    const timer = window.setTimeout(() => setLayoutResult(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [layoutResult]);
 
   const reportError = useCallback(
     (e: unknown) => {
@@ -171,7 +180,24 @@ export default function App() {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
-  const onFit = useCallback(() => setFitNonce((n) => n + 1), []);
+  const onFit = useCallback(() => { setLayoutFit(false); setFitNonce((n) => n + 1); }, []);
+  const onLayout = (selectedOnly: boolean) => {
+    if (layoutBusy) return;
+    setLayoutResult(null);
+    setLayoutBusy(true);
+    // 先让“整理中”绘制一帧，再运行可能耗时的关系线/集合避让。
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try {
+        const result = editor.layoutTidy(selectedOnly);
+        if (result.ok) {
+          setLayoutFit(true);
+          setFitNonce(n => n + 1);
+          setLayoutResult(result.moved ? `已整理 ${result.moved} 张卡片` : result.outcome === "unresolved" ? "未找到更好的无冲突布局" : "已按当前规则排好，无需再移动");
+        }
+      } catch (error) { reportError(error); }
+      finally { setLayoutBusy(false); }
+    }));
+  };
 
   // 调试探针：冒烟脚本只读检查用
   useEffect(() => {
@@ -189,11 +215,14 @@ export default function App() {
         onExportStrip={() => void doExportStrip()}
         onExportPng={() => void doExportPng()}
         onFit={onFit}
+        onLayout={onLayout}
+        layoutBusy={layoutBusy}
+          layoutResult={layoutResult}
         structureView={structureView}
         onToggleStructure={() => setStructureView((v) => !v)}
         onInstall={installPrompt ? () => void doInstall() : undefined}
       />
-      <Canvas editor={editor} fitNonce={fitNonce} structureView={structureView} />
+      <Canvas editor={editor} fitNonce={fitNonce} layoutFit={layoutFit} structureView={structureView} />
       <ReplayBar editor={editor} />
     </div>
   );

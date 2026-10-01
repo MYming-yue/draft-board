@@ -15,6 +15,7 @@ Draft Board 是本地优先、文件可携带、编辑可撤销的数字草稿�
 | `src/model/history.ts`、`replay.ts` | 步骤提交、逆操作、撤销 / 重做、历史回放 |
 | `src/model/file.ts` | `.draft` ZIP 序列化、读取及内嵌资源 |
 | `src/model/layout.ts`、`duplicate.ts` | 树状布局、落点避让、复制时重建身份 |
+| `src/ui/layoutConstraints.ts`、`layoutPlanner.ts` | 依据实测卡片、可见关系线与集合边界避让，保留成功的布局结果 |
 | `src/ui/store.ts` | React reducer、交互动作到模型操作的提交边界 |
 | `src/ui/Canvas.tsx`、`NodeCard.tsx`、`EdgeLayer.tsx` | 画布手势、卡片编辑、连线绘制 |
 | `src/ui/formulaLayout.ts`、`alignmentSnap.ts`、`view.ts` | 公式尺寸、附近卡片吸附、坐标转换 |
@@ -40,6 +41,8 @@ Draft Board 是本地优先、文件可携带、编辑可撤销的数字草稿�
 - 保留 Markdown 原文，禁止为排版方便把公式转成不可编辑图片；Markdown 不开放原始 HTML 执行。
 - 规格、实现和测试必须同步。新增字段 / op / 错误码时同步 `docs/spec.md`、类型、校验、执行、逆操作与回放，并说明旧文件兼容性。
 
+- 集合为独立 `collections` 实体，允许共享成员，不根据几何包含自动改变归属。集合操作后文件升为 2.0；旧 1.0 文件仍可读取。删除卡片同步维护所有集合，撤销恢复归属；解散集合不删卡片。集合几何由 UI 实测外框派生。
+
 ## 修改与验证流程
 
 使用 Node.js 22+，在仓库根目录执行。首次安装或依赖锁文件变化后运行：
@@ -63,6 +66,8 @@ Linux 环境缺少系统库时使用 `install --with-deps chromium`。脚本默�
 | `npm run smoke:alignment` | 实际拖动时附近对齐、大卡扩大搜索、远处卡片不成为目标、撤销 |
 | `npm run smoke:concept` | 紧凑主体、默认备注、有序列表续号、结构视图及连线、保存与撤销、缩放；使用端口 4187 |
 | `npm run smoke:edges` | 同向关联覆盖、撤销恢复、双向曲线分离与保存；使用端口 4190 |
+| `npm run smoke:layout` | 布局实际外框无重叠、关系线/集合避让、按窗口比例填充并适应视图、局部避让、长备注/图片/公式、缩放、稳定顺序、幂等与一次撤销；端口 4192 |
+| `npm run smoke:collections` | 集合共享、拖动与撤销、成员维护、排版、输入法、缩放、文件往返和 PNG；端口 4191 |
 | `npm run smoke:pwa` | manifest、模拟 launchQueue 打开 / 回写、缓存后离线重载 |
 
 `npm run check` 是上述命令的顺序组合，CI 执行同一命令。纯文档 PR 可以注明未运行代码测试及原因，但仍需检查相对链接、示例命令与实现一致。测试环境缺失或命令失败时，明确记录阻塞与日志，不得声称通过、删断言或跳过失败来制造绿色结果。

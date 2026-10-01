@@ -11,3 +11,5 @@ export * from "./duplicate";
 export * from "./layout";
 export * from "./file";
 export * from "./association";
+
+export * from "./collections";

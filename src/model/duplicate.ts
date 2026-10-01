@@ -32,5 +32,12 @@ export function duplicateGroup(
     copy.to = idMap.get(edge.to)!;
     ops.push({ op: "addEdge", edge: copy, before: null, after: structuredClone(copy) });
   }
+  // 仅完整选中的集合随卡片复制；部分复制不推断新的成员关系。
+  for (const collection of state.collections ?? []) {
+    if (!collection.nodeIds.length || !collection.nodeIds.every(id => set.has(id))) continue;
+    const copy = { ...structuredClone(collection), id: genId("node").replace(/^n_/, "g_"),
+      nodeIds: collection.nodeIds.map(id => idMap.get(id)!), x: collection.x + offset.dx, y: collection.y + offset.dy };
+    ops.push({ op: "addCollection", collection: copy, before: null, after: structuredClone(copy) });
+  }
   return ops;
 }

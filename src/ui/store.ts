@@ -1,13 +1,13 @@
 // 编辑器全局状态：React useReducer，无外部状态库。
 // 所有内容修改都经 model 的 commitStep（校验+历史+contentVersion），
 // 视图/文件名等非内容变化直接改 board 元数据（不进历史，契约 op 词汇表不覆盖）。
+import { measureLayoutGeometry } from "./layoutGeometry";
+import { planTidyLayout } from "./layoutPlanner";
 import { useMemo, useReducer } from "react";
 import {
   commitStep,
   createEmptyBoard,
   duplicateGroup,
-  forestRoots,
-  layoutBranchOps,
   makeId,
   redo as modelRedo,
   undo as modelUndo,
@@ -249,7 +249,7 @@ export interface EditorApi {
   dispatch: React.Dispatch<Action>;
   commit: (label: string, ops: Op[], select?: { nodes?: string[]; edges?: string[] }, editingId?: string | null) => boolean;
   commitAssetNode: (label: string, asset: BoardAsset, bytes: Uint8Array, ops: Op[], select?: { nodes?: string[] }) => boolean;
-  layoutTidy: () => void;
+    layoutTidy: (selectedOnly?: boolean) => { ok: boolean; moved: number; outcome?: "changed" | "already-tidy" | "unresolved" };
   duplicateSelection: () => void;
 }
 
@@ -266,10 +266,22 @@ export function useEditor(): EditorApi {
       dispatch({ type: "commit", label, ops, select });
       return true;
     };
-    const layoutTidy = () => {
-      const roots = state.selection.nodes.length > 0 ? state.selection.nodes : forestRoots(state.file);
-      const ops = layoutBranchOps(state.file, roots);
-      if (ops.length > 0) dispatch({ type: "commit", label: "布局整理", ops });
+    const layoutTidy = (selectedOnly = false) => {
+      if (state.replay.active || state.editingId || !state.file.nodes.length) return { ok: false, moved: 0 };
+      const geometry = measureLayoutGeometry(state.file.nodes);
+      if (!geometry) {
+        dispatch({ type: "commitError", message: "卡片或字体、图片仍在加载，请加载完成后再整理。" });
+        return { ok: false, moved: 0 };
+      }
+      const canvas = document.querySelector<HTMLElement>(".canvas");
+      const aspectRatio = canvas && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 1.6;
+      const planned = planTidyLayout(state.file, selectedOnly ? state.selection.nodes : [], geometry, aspectRatio);
+      if (!planned.ok) {
+        dispatch({ type: "commitError", message: "当前关系线或集合边界无法全部避开；请调整相关卡片后再整理。" });
+        return { ok: false, moved: 0 };
+      }
+      if (planned.ops.length > 0) dispatch({ type: "commit", label: "布局整理", ops: planned.ops });
+      return { ok: true, moved: planned.ops.length, outcome: planned.outcome };
     };
     const duplicateSelection = () => {
       if (state.selection.nodes.length === 0) return;

@@ -192,7 +192,7 @@ ok("拖动卡片生效", Math.abs(messyPos.x - origPos.x) > 40 || Math.abs(messy
 await page.mouse.click(90, 720); // 点空白清选 → 布局整理作用于全部根
 await page.waitForTimeout(200);
 await page.getByRole("button", { name: "布局整理" }).click();
-await page.waitForTimeout(400);
+await page.getByRole("button", { name: "整理中…" }).waitFor({ state: "hidden", timeout: 120000 });
 const afterPos = await nodePos(1);
 ok("布局整理移动了卡片", Math.abs(messyPos.x - afterPos.x) > 1 || Math.abs(messyPos.y - afterPos.y) > 1);
 ok("整理后 parentChild 边仍在", (await page.locator(".edge-path.edge-parent").count()) === 2);
@@ -349,6 +349,7 @@ const dt = await page.evaluateHandle(() => {
 await page.dispatchEvent(".canvas", "drop", { dataTransfer: dt });
 await page.waitForTimeout(400);
 ok("拖入图片生成图片卡", (await page.locator(".node-card img.node-image").count()) === 1);
+await page.getByRole("button", { name: "适应视图" }).click(); // 缩放手柄须完整落在视口内。
 const imgNodeId = await page.evaluate(() => window.__state.file.nodes.find((n) => n.type === "image")?.id);
 const imgSize0 = await page.evaluate(() => {
   const n = window.__state.file.nodes.find((x) => x.type === "image");
@@ -641,24 +642,23 @@ const panMore = async () => {
 };
 const freeSpot = async () => {
   const occ = await page.evaluate(() => {
-    const v = window.__state.file.board.view;
-    const tb = document.querySelector(".toolbar").offsetHeight;
+    const canvas = document.querySelector(".canvas").getBoundingClientRect();
     return {
-      pan: v,
-      tb,
-      rects: window.__state.file.nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h ?? 100 })),
+      zoom: window.__state.file.board.view.zoom,
+      canvas: { left: canvas.left, top: canvas.top, right: canvas.right, bottom: canvas.bottom },
+      rects: [...document.querySelectorAll(".node-card")].map(el => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }),
     };
   });
   for (let y = 120; y < 700; y += 110) {
     for (let x = 80; x < 1080; x += 250) {
-      const wx = (x - occ.pan.panX) / occ.pan.zoom;
-      const wy = (y - occ.tb - occ.pan.panY) / occ.pan.zoom;
-      if (x - 120 * occ.pan.zoom < 20 || x + 120 * occ.pan.zoom > 1260) continue;
-      const cardX = wx - 120;
-      const cardY = wy - 30;
-      const hit = occ.rects.some(
-        (r) => cardX < r.x + r.w + 80 && cardX + 240 + 80 > r.x && cardY < r.y + r.h + 80 && cardY + 100 + 80 > r.y,
-      );
+      const cardX = x - 120 * occ.zoom, cardY = y - 30 * occ.zoom;
+      const cardW = 240 * occ.zoom, cardH = 100 * occ.zoom;
+      if (cardX < occ.canvas.left + 20 || cardX + cardW > occ.canvas.right - 20 || cardY < occ.canvas.top + 20 || cardY + cardH > occ.canvas.bottom - 20) continue;
+      const gap = 80 * occ.zoom;
+      const hit = occ.rects.some(r => cardX < r.x + r.w + gap && cardX + cardW + gap > r.x && cardY < r.y + r.h + gap && cardY + cardH + gap > r.y);
       if (!hit) return { x, y };
     }
   }
@@ -716,6 +716,7 @@ await page.keyboard.insertText("乙B");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
 const yiIds = await idByMd();
+await page.getByRole("button", { name: "适应视图" }).click();
 await page.locator(`[data-node-id="${yiIds["乙A"]}"]`).hover();
 const yhb = await page.locator(`[data-node-id="${yiIds["乙A"]}"] .connect-handle`).boundingBox();
 const ybb = await page.locator(`[data-node-id="${yiIds["乙B"]}"]`).boundingBox();

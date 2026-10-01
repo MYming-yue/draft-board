@@ -1,3 +1,4 @@
+import { useCollections } from "./useCollections";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   makeId,
@@ -63,11 +64,12 @@ interface CanvasProps {
   structureView: boolean;
   editor: EditorApi;
   fitNonce: number; // 变化时执行「回到全部内容可见」
+  layoutFit: boolean;
 }
 
 type ViewLocal = CanvasView;
 
-export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
+export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasProps) {
   const { state, dispatch, commit, commitAssetNode } = editor;
   const { file } = state;
   const readOnly = state.replay.active;
@@ -219,6 +221,8 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
     };
   }, []);
 
+  const collectionUI = useCollections({ editor, nodes, collections: (replayState ? replayState.collections : file.collections) ?? [], geoms, drag, setDrag, toWorld });
+
   // ---- 卡片实测外框高度（h=null 自适应 → 连线锚点/框选/避让需要几何） ----
   // 注意用 border-box（含 padding+border）：contentRect 只量内容高，会让几何计算矮 23px
   useEffect(() => {
@@ -289,14 +293,15 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
 
   // ---- 适应视图（回到全部内容可见） ----
   useEffect(() => {
-    if (fitNonce === 0 || nodes.length === 0) return;
+    if (fitNonce === 0 || (nodes.length === 0 && !collectionUI.bounds.length)) return;
     const rect = containerRef.current!.getBoundingClientRect();
-    const pad = 80;
-    const x0 = Math.min(...nodes.map((n) => n.x)) - pad;
-    const y0 = Math.min(...nodes.map((n) => n.y)) - pad;
-    const x1 = Math.max(...nodes.map((n) => n.x + outerW(n))) + pad;
-    const y1 = Math.max(...nodes.map((n) => n.y + outerH(n))) + pad;
-    const zoom = Math.min(2, Math.max(0.1, Math.min(rect.width / (x1 - x0), rect.height / (y1 - y0))));
+    const pad = layoutFit ? Math.max(24, Math.min(rect.width, rect.height) * 0.04) : 80;
+    const lineBoxes = [...containerRef.current!.querySelectorAll<SVGGraphicsElement>(".edge-path, .edge-label")].map(path => path.getBBox());
+    const x0 = Math.min(...nodes.map((n) => n.x), ...collectionUI.bounds.map(b => b.x), ...lineBoxes.map(b => b.x)) - pad;
+    const y0 = Math.min(...nodes.map((n) => n.y), ...collectionUI.bounds.map(b => b.y), ...lineBoxes.map(b => b.y)) - pad;
+    const x1 = Math.max(...nodes.map((n) => n.x + outerW(n)), ...collectionUI.bounds.map(b => b.x + b.w), ...lineBoxes.map(b => b.x + b.width)) + pad;
+    const y1 = Math.max(...nodes.map((n) => n.y + outerH(n)), ...collectionUI.bounds.map(b => b.y + b.h), ...lineBoxes.map(b => b.y + b.height)) + pad;
+    const zoom = Math.min(layoutFit ? 3 : 2, Math.max(0.1, Math.min(rect.width / (x1 - x0), rect.height / (y1 - y0))));
     const next = {
       zoom,
       panX: rect.width / 2 - ((x0 + x1) / 2) * zoom,
@@ -338,6 +343,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
     const ctrlLeftMarquee = e.button === 0 && e.ctrlKey && !e.altKey;
     if (e.button !== 0 && e.button !== 1) return;
     if (e.target !== e.currentTarget && (e.target as HTMLElement).closest(".node-card, .edge-hit, .edge-label")) return;
+    if (!ctrlLeftMarquee && !e.shiftKey) collectionUI.clearActive();
     if (ctrlLeftMarquee) e.preventDefault();
     containerRef.current?.focus({ preventScroll: true });
     setEditingLabelId(null);
@@ -687,6 +693,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
       if (e.isComposing) return; // 中文输入法选字优先
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
+    if (collectionUI.handleKey(e)) return;
     const sel = state.selection;
     const selNode = sel.nodes.length === 1 ? file.nodes.find((n) => n.id === sel.nodes[0]) : null;
 
@@ -952,6 +959,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
         data-zoom={view.zoom}
         style={{ transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})` }}
       >
+        {collectionUI.layer}
         <EdgeLayer
           nodes={nodes}
           edges={edges}
@@ -1029,6 +1037,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
           />
         ))}
       </div>
+      {collectionUI.panel}
       {!readOnly && nodes.length === 0 && (
         <div className="canvas-hint">
           双击建卡 · 左键拖动画布 · WASD/方向键平移 · Alt+左键上下拖缩放 · Shift+左键框选 · Enter 编辑

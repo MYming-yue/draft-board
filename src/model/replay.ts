@@ -1,12 +1,13 @@
 // 契约 §3-D / I6：回放 = 从空板顺序应用 history 全部步骤。
 // 注：op 词汇表没有 addAsset（封闭枚举），assets 元数据不随步骤演化，
-// 回放起点携带当前 assets[]，仅重建 nodes/edges 结构。
+// 回放起点携带当前 assets[]，重建 nodes/edges/collections 结构。
 import { DraftError } from "./errors";
 import { applyOps } from "./ops";
-import type { BoardAsset, BoardEdge, BoardFile, BoardNode } from "./types";
+import type { BoardCollection, BoardAsset, BoardEdge, BoardFile, BoardNode } from "./types";
 
 export interface ReplayState {
   nodes: BoardNode[];
+  collections?: BoardCollection[];
   edges: BoardEdge[];
   assets: BoardAsset[];
   contentVersion: number;
@@ -18,6 +19,7 @@ export function replayTo(file: BoardFile, stepSeq?: number): ReplayState {
   let state: BoardFile = {
     ...structuredClone(file),
     nodes: [],
+    collections: [],
     edges: [],
     history: [],
     board: { ...structuredClone(file.board), contentVersion: 0 },
@@ -31,6 +33,7 @@ export function replayTo(file: BoardFile, stepSeq?: number): ReplayState {
   }
   return {
     nodes: state.nodes,
+    collections: state.collections,
     edges: state.edges,
     assets: state.assets,
     contentVersion: state.board.contentVersion,
@@ -56,7 +59,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-/** I6 断言：回放结果与当前保存状态内容一致（比较 nodes/edges/assets）。 */
-export function contentEqual(a: ReplayState, b: Pick<BoardFile, "nodes" | "edges" | "assets">): boolean {
-  return deepEqual(a.nodes, b.nodes) && deepEqual(a.edges, b.edges) && deepEqual(a.assets, b.assets);
+/** I6 断言：回放结果与当前保存状态内容一致（比较 nodes/edges/assets/collections）。 */
+export function contentEqual(a: ReplayState, b: Pick<BoardFile, "nodes" | "edges" | "assets" | "collections">): boolean {
+  return deepEqual(a.collections ?? [], b.collections ?? []) && deepEqual(a.nodes, b.nodes) && deepEqual(a.edges, b.edges) && deepEqual(a.assets, b.assets);
 }

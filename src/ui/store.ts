@@ -60,7 +60,7 @@ export type Action =
   | { type: "setFileConflict"; sessionId: string; message: string | null }
   | { type: "receiveExternal"; bundle: DraftBundle; stamp: SaveStamp; changes: ExternalChanges }
   | { type: "dismissExternal" }
-  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string; sessionId?: string }
+  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string; stamp: SaveStamp }
   | { type: "markSaving" }
   | { type: "markSaved"; stamp: SaveStamp }
   | { type: "markSaveCancelled"; stamp: SaveStamp; previous: SaveState }
@@ -237,7 +237,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       return initialEditorState();
     }
     case "setHandle":
-      if (a.sessionId && a.sessionId !== s.sessionId) return s;
+      if (s.sessionId !== a.stamp.sessionId) return s;
       return { ...s, fileHandle: a.handle, fileName: a.fileName, fileNameTracksBoardName: false };
     case "markSaving":
       return { ...s, saveState: "saving" };

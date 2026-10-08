@@ -48,7 +48,7 @@ it("取消文件选择后保持未保存；新白板不受旧保存回调影响"
   expect(state.saveState).toBe("dirty");
 
   state = editorReducer(state, { type: "newBoard" });
-  state = editorReducer(state, { type: "setHandle", handle: {} as FileSystemFileHandle, fileName: "旧文件.draft", sessionId: stamp.sessionId });
+  state = editorReducer(state, { type: "setHandle", handle: {} as FileSystemFileHandle, fileName: "旧文件.draft", stamp });
   state = editorReducer(state, { type: "markSaved", stamp });
   state = editorReducer(state, { type: "markSaveError", stamp, message: "旧文件失败" });
   expect(state.saveState).toBe("clean");
@@ -72,4 +72,29 @@ it("新白板的建议文件名随名称更新，已打开文件保持原文件�
   state = editorReducer(state, { type: "rename", name: "文件内部标题" });
   expect(state.file.board.name).toBe("文件内部标题");
   expect(state.fileName).toBe("磁盘上的名字.draft");
+});
+
+it("旧会话保存完成不能给新建或打开的白板绑定文件句柄", () => {
+  const original = initialEditorState();
+  const stamp = { sessionId: original.sessionId, editRevision: original.editRevision };
+  const oldHandle = { name: "旧白板.draft" } as FileSystemFileHandle;
+  for (const state of [
+    editorReducer(original, { type: "newBoard" }),
+    editorReducer(original, { type: "load", bundle: { file: original.file, blobs: {} }, handle: null, fileName: "新文件.draft" }),
+  ]) {
+    const result = editorReducer(state, { type: "setHandle", handle: oldHandle, fileName: oldHandle.name, stamp });
+    expect(result).toBe(state);
+    expect(result.fileHandle).toBeNull();
+  }
+});
+
+it("同一会话保存期间继续编辑仍可绑定句柄，但新修改保持未保存", () => {
+  const original = initialEditorState();
+  const stamp = { sessionId: original.sessionId, editRevision: original.editRevision };
+  const handle = { name: "首次保存.draft" } as FileSystemFileHandle;
+  let state = editorReducer(original, { type: "rename", name: "继续编辑" });
+  state = editorReducer(state, { type: "setHandle", handle, fileName: handle.name, stamp });
+  state = editorReducer(state, { type: "markSaved", stamp });
+  expect(state.fileHandle).toBe(handle);
+  expect(state.saveState).toBe("dirty");
 });

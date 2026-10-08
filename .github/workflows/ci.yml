@@ -24,7 +24,7 @@ jobs:
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: npm run check
       - name: Upload browser diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: browser-diagnostics

@@ -116,6 +116,50 @@ await page.keyboard.press("Control+s");
 await page.waitForFunction(() => window.__pwaSavedBytes > 0 && window.__state.saveState === "saved");
 ok("Ctrl+S 写回启动时收到的文件句柄", (await page.evaluate(() => window.__pwaSavedBytes)) > 0);
 
+// 挂起真实 UI 的保存回调，在完成前切换会话；普通保存和另存为都不能污染新白板。
+for (const [saveAs, failSave] of [[false, false], [true, false], [false, true], [true, true]]) {
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  await page.evaluate(failSave => {
+    window.__oldSaveStarted = false;
+    window.__oldSaveClosed = false;
+    window.showSaveFilePicker = async () => ({
+      kind: "file", name: "旧会话保存.draft",
+      async createWritable() { return {
+        async write() { window.__oldSaveStarted = true; },
+        async close() {
+          await new Promise(resolve => { window.__releaseOldSave = resolve; });
+          window.__oldSaveClosed = true;
+          if (failSave) throw new Error("模拟旧会话写入失败");
+        },
+      }; },
+    });
+  }, failSave);
+  await page.getByRole("button", { name: saveAs ? "另存为" : "保存", exact: true }).click();
+  await page.waitForFunction(() => window.__oldSaveStarted);
+  const oldSession = await page.evaluate(() => window.__state.sessionId);
+  page.once("dialog", async dialog => {
+    if (dialog.type() !== "confirm") throw new Error("切换保存中的会话应触发确认");
+    const expected = saveAs ? "当前白板有未保存修改，确定打开另一个文件吗？" : "当前白板有未保存修改，确定新建并丢弃吗？";
+    if (dialog.message() !== expected) throw new Error(`意外的确认：${dialog.message()}`);
+    await dialog.accept();
+  });
+  if (saveAs) {
+    await page.evaluate(() => window.__launchConsumer({ files: [window.__launchHandle] }));
+  } else {
+    await page.getByRole("button", { name: "新建", exact: true }).click();
+  }
+  await page.waitForFunction(old => window.__state.sessionId !== old, oldSession);
+  const before = await page.evaluate(() => ({ fileName: window.__state.fileName, saveState: window.__state.saveState, saveError: window.__state.saveError }));
+  await page.evaluate(() => window.__releaseOldSave());
+  await page.waitForFunction(() => window.__oldSaveClosed);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  ok(`${saveAs ? "另存为" : "首次保存"}${failSave ? "失败" : "成功"}旧回调不改变新会话句柄、文件名或保存状态`, await page.evaluate(({ saveAs, before }) =>
+    window.__state.fileHandle === (saveAs ? window.__launchHandle : null)
+    && window.__state.fileName === before.fileName && window.__state.saveState === before.saveState
+    && window.__state.saveError === before.saveError,
+  { saveAs, before }));
+}
+
 const manifest = await (await page.request.get(`${URL}manifest.webmanifest`)).json();
 ok("manifest 声明 .draft 文件处理器", manifest.file_handlers?.[0]?.accept?.["application/octet-stream"]?.includes(".draft"));
 ok("manifest 包含 192/512 桌面图标", manifest.icons?.some((icon) => icon.sizes === "192x192") && manifest.icons?.some((icon) => icon.sizes === "512x512"));

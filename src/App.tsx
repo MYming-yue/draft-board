@@ -135,7 +135,7 @@ export default function App() {
       diskBaseline.current = state.file;
       diskAssets.current = state.blobs;
       if (handle && handle !== state.fileHandle)
-        dispatch({ type: "setHandle", handle, fileName: handle.name, sessionId: stamp.sessionId });
+        dispatch({ type: "setHandle", handle, fileName: handle.name, stamp });
       dispatch({ type: "markSaved", stamp });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -160,13 +160,14 @@ export default function App() {
       if (result.status === "saved") {
         diskBaseline.current = state.file;
         diskAssets.current = state.blobs;
-        dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle?.name ?? result.fileName ?? state.fileName, sessionId: stamp.sessionId });
+        dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle?.name ?? result.fileName ?? state.fileName, stamp });
         dispatch({ type: "setFileConflict", sessionId: stamp.sessionId, message: null });
         dispatch({ type: "dismissExternal" });
         dispatch({ type: "markSaved", stamp });
       }
     } catch (e) {
-      dispatch({ type: "markSaveError", stamp, message: e instanceof Error ? e.message : String(e) });
+      const msg = e instanceof Error ? e.message : String(e);
+      dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
     } finally { saveInFlight.current = false; setSavingIO(false); }
   }, [state, dispatch]);
 

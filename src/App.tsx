@@ -112,7 +112,7 @@ export default function App() {
       }
       const handle = result.handle;
       if (handle && handle !== state.fileHandle)
-        dispatch({ type: "setHandle", handle, fileName: handle.name });
+        dispatch({ type: "setHandle", handle, fileName: handle.name, stamp });
       dispatch({ type: "markSaved", stamp });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -122,16 +122,21 @@ export default function App() {
 
   const doSaveAs = useCallback(async () => {
     const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
+    const previous = state.saveState;
+    dispatch({ type: "markSaving" });
     try {
       const result = await saveDraft(state, { forcePicker: true });
-      if (result.status === "saved") {
-        if (result.handle) dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle.name });
-        dispatch({ type: "markSaved", stamp });
+      if (result.status === "cancelled") {
+        dispatch({ type: "markSaveCancelled", stamp, previous });
+        return;
       }
+      if (result.handle) dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle.name, stamp });
+      dispatch({ type: "markSaved", stamp });
     } catch (e) {
-      reportError(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
     }
-  }, [state, dispatch, reportError]);
+  }, [state, dispatch]);
 
   const doExportStrip = useCallback(async () => {
     try {

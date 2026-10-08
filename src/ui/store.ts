@@ -54,7 +54,7 @@ export type Action =
   | { type: "rename"; name: string }
   | { type: "load"; bundle: DraftBundle; handle: FileSystemFileHandle | null; fileName: string }
   | { type: "newBoard" }
-  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string }
+  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string; stamp: SaveStamp }
   | { type: "markSaving" }
   | { type: "markSaved"; stamp: SaveStamp }
   | { type: "markSaveCancelled"; stamp: SaveStamp; previous: SaveState }
@@ -213,6 +213,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       return initialEditorState();
     }
     case "setHandle":
+      if (s.sessionId !== a.stamp.sessionId) return s;
       return { ...s, fileHandle: a.handle, fileName: a.fileName, fileNameTracksBoardName: false };
     case "markSaving":
       return { ...s, saveState: "saving" };

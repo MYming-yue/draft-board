@@ -2,6 +2,7 @@ import { customAlphabet } from "nanoid";
 
 // 契约 §5 ID 规约：b_/n_/e_/a_ 前缀 + [A-Za-z0-9_-]{6,32}。
 export const ID_PATTERNS = {
+  collection: /^g_[A-Za-z0-9_-]{6,32}$/,
   board: /^b_[A-Za-z0-9_-]{6,32}$/,
   node: /^n_[A-Za-z0-9_-]{6,32}$/,
   edge: /^e_[A-Za-z0-9_-]{6,32}$/,
@@ -9,6 +10,8 @@ export const ID_PATTERNS = {
   assetPath: /^assets\/a_[A-Za-z0-9_-]{6,32}\.(png|jpg|jpeg)$/,
   formatVersion: /^\d+\.\d+$/,
 } as const;
+
+export function makeCollectionId(): string { return "g_" + nano(); }
 
 const nano = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", 12);
 

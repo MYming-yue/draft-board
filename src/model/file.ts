@@ -14,7 +14,7 @@ export interface DraftBundle {
 
 export function serializeBoard(file: BoardFile, blobs: Record<string, Uint8Array>): Uint8Array {
   const entries: Record<string, Uint8Array> = {
-    "board.json": strToU8(JSON.stringify(file, null, 2)),
+    "board.json": strToU8(JSON.stringify({ ...file, formatVersion: file.collections?.length ? "2.0" : file.formatVersion }, null, 2)),
   };
   for (const asset of file.assets) {
     const data = blobs[asset.id];
@@ -41,7 +41,7 @@ export function parseBoard(bytes: Uint8Array): DraftBundle {
     throw new DraftError("E_SCHEMA", "board.json 不是合法 JSON");
   }
   const fv = (raw as { formatVersion?: unknown })?.formatVersion;
-  if (typeof fv === "string" && /^\d+\.\d+$/.test(fv) && fv.split(".")[0] !== "1")
+  if (typeof fv === "string" && /^\d+\.\d+$/.test(fv) && !["1", "2"].includes(fv.split(".")[0]))
     // I9：不认识的主版本明确报错，不静默丢内容
     throw new DraftError("E_FORMAT_UNSUPPORTED", `不支持的 formatVersion 主版本：${fv}`);
   const bad = validateBoardFileShape(raw);

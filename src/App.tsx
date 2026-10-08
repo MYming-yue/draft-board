@@ -16,8 +16,17 @@ export default function App() {
   const editor = useEditor();
   const { state, dispatch } = editor;
   const [fitNonce, setFitNonce] = useState(0);
+  const [layoutFit, setLayoutFit] = useState(false);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [layoutResult, setLayoutResult] = useState<string | null>(null);
   const [structureView, setStructureView] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    if (!layoutResult) return;
+    const timer = window.setTimeout(() => setLayoutResult(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [layoutResult]);
 
   const reportError = useCallback(
     (e: unknown) => {
@@ -92,29 +101,42 @@ export default function App() {
 
   const doSave = useCallback(async () => {
     if (state.replay.active) return;
+    const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
+    const previous = state.saveState;
     dispatch({ type: "markSaving" });
     try {
-      const handle = await saveDraft(state);
+      const result = await saveDraft(state);
+      if (result.status === "cancelled") {
+        dispatch({ type: "markSaveCancelled", stamp, previous });
+        return;
+      }
+      const handle = result.handle;
       if (handle && handle !== state.fileHandle)
-        dispatch({ type: "setHandle", handle, fileName: handle.name });
-      dispatch({ type: "markSaved" });
+        dispatch({ type: "setHandle", handle, fileName: handle.name, stamp });
+      dispatch({ type: "markSaved", stamp });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      dispatch({ type: "markSaveError", message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
+      dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
     }
   }, [state, dispatch]);
 
   const doSaveAs = useCallback(async () => {
+    const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
+    const previous = state.saveState;
+    dispatch({ type: "markSaving" });
     try {
-      const handle = await saveDraft(state, { forcePicker: true });
-      if (handle) {
-        dispatch({ type: "setHandle", handle, fileName: handle.name });
-        dispatch({ type: "markSaved" });
+      const result = await saveDraft(state, { forcePicker: true });
+      if (result.status === "cancelled") {
+        dispatch({ type: "markSaveCancelled", stamp, previous });
+        return;
       }
+      if (result.handle) dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle.name, stamp });
+      dispatch({ type: "markSaved", stamp });
     } catch (e) {
-      reportError(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
     }
-  }, [state, dispatch, reportError]);
+  }, [state, dispatch]);
 
   const doExportStrip = useCallback(async () => {
     try {
@@ -150,7 +172,37 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const onFit = useCallback(() => setFitNonce((n) => n + 1), []);
+  // 浏览器刷新/关闭时保护未落盘修改，也保护仍在输入框中的草稿。
+  const unloadState = useRef(state);
+  unloadState.current = state;
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const current = unloadState.current;
+      if (current.editingId === null && !["dirty", "saving", "error"].includes(current.saveState)) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+  const onFit = useCallback(() => { setLayoutFit(false); setFitNonce((n) => n + 1); }, []);
+  const onLayout = (selectedOnly: boolean) => {
+    if (layoutBusy) return;
+    setLayoutResult(null);
+    setLayoutBusy(true);
+    // 先让“整理中”绘制一帧，再运行可能耗时的关系线/集合避让。
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try {
+        const result = editor.layoutTidy(selectedOnly);
+        if (result.ok) {
+          setLayoutFit(true);
+          setFitNonce(n => n + 1);
+          setLayoutResult(result.moved ? `已整理 ${result.moved} 张卡片` : result.outcome === "unresolved" ? "未找到更好的无冲突布局" : "已按当前规则排好，无需再移动");
+        }
+      } catch (error) { reportError(error); }
+      finally { setLayoutBusy(false); }
+    }));
+  };
 
   // 调试探针：冒烟脚本只读检查用
   useEffect(() => {
@@ -168,11 +220,14 @@ export default function App() {
         onExportStrip={() => void doExportStrip()}
         onExportPng={() => void doExportPng()}
         onFit={onFit}
+        onLayout={onLayout}
+        layoutBusy={layoutBusy}
+          layoutResult={layoutResult}
         structureView={structureView}
         onToggleStructure={() => setStructureView((v) => !v)}
         onInstall={installPrompt ? () => void doInstall() : undefined}
       />
-      <Canvas editor={editor} fitNonce={fitNonce} structureView={structureView} />
+      <Canvas editor={editor} fitNonce={fitNonce} layoutFit={layoutFit} structureView={structureView} />
       <ReplayBar editor={editor} />
     </div>
   );

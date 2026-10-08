@@ -1,3 +1,4 @@
+import { useCollections } from "./useCollections";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   makeId,
@@ -63,11 +64,12 @@ interface CanvasProps {
   structureView: boolean;
   editor: EditorApi;
   fitNonce: number; // 变化时执行「回到全部内容可见」
+  layoutFit: boolean;
 }
 
 type ViewLocal = CanvasView;
 
-export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
+export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasProps) {
   const { state, dispatch, commit, commitAssetNode } = editor;
   const { file } = state;
   const readOnly = state.replay.active;
@@ -80,6 +82,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [connect, setConnect] = useState<{ sourceId: string; cursor: { x: number; y: number } } | null>(null);
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
+  const [frontNodeId, setFrontNodeId] = useState<string | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
   const [altZooming, setAltZooming] = useState(false);
   const [pointerPanning, setPointerPanning] = useState(false);
@@ -92,6 +95,16 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   const keyboardPanMovedRef = useRef(false);
   viewRef.current = view;
 
+  useEffect(() => {
+    if (!editingLabelId) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [editingLabelId]);
+
   // 回放快照（只读）；正常编辑时用 file 本体
   const replayState: ReplayState | null = useMemo(
     () => (state.replay.active ? replayTo(file, state.replay.step) : null),
@@ -99,6 +112,13 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   );
   const nodes = replayState ? replayState.nodes : file.nodes;
   const edges = replayState ? replayState.edges : file.edges;
+
+  // 最近操作的卡片只影响本次会话的绘制层级，不改文件和历史。
+  useEffect(() => setFrontNodeId(null), [file.board.id]);
+  useEffect(() => {
+    const selectedId = state.selection.nodes.at(-1);
+    if (selectedId) setFrontNodeId(selectedId);
+  }, [state.selection.nodes]);
 
   // 打开/新建白板时重置视图
   useEffect(() => {
@@ -201,6 +221,8 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
     };
   }, []);
 
+  const collectionUI = useCollections({ editor, nodes, collections: (replayState ? replayState.collections : file.collections) ?? [], geoms, drag, setDrag, toWorld });
+
   // ---- 卡片实测外框高度（h=null 自适应 → 连线锚点/框选/避让需要几何） ----
   // 注意用 border-box（含 padding+border）：contentRect 只量内容高，会让几何计算矮 23px
   useEffect(() => {
@@ -271,14 +293,15 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
 
   // ---- 适应视图（回到全部内容可见） ----
   useEffect(() => {
-    if (fitNonce === 0 || nodes.length === 0) return;
+    if (fitNonce === 0 || (nodes.length === 0 && !collectionUI.bounds.length)) return;
     const rect = containerRef.current!.getBoundingClientRect();
-    const pad = 80;
-    const x0 = Math.min(...nodes.map((n) => n.x)) - pad;
-    const y0 = Math.min(...nodes.map((n) => n.y)) - pad;
-    const x1 = Math.max(...nodes.map((n) => n.x + outerW(n))) + pad;
-    const y1 = Math.max(...nodes.map((n) => n.y + outerH(n))) + pad;
-    const zoom = Math.min(2, Math.max(0.1, Math.min(rect.width / (x1 - x0), rect.height / (y1 - y0))));
+    const pad = layoutFit ? Math.max(24, Math.min(rect.width, rect.height) * 0.04) : 80;
+    const lineBoxes = [...containerRef.current!.querySelectorAll<SVGGraphicsElement>(".edge-path, .edge-label")].map(path => path.getBBox());
+    const x0 = Math.min(...nodes.map((n) => n.x), ...collectionUI.bounds.map(b => b.x), ...lineBoxes.map(b => b.x)) - pad;
+    const y0 = Math.min(...nodes.map((n) => n.y), ...collectionUI.bounds.map(b => b.y), ...lineBoxes.map(b => b.y)) - pad;
+    const x1 = Math.max(...nodes.map((n) => n.x + outerW(n)), ...collectionUI.bounds.map(b => b.x + b.w), ...lineBoxes.map(b => b.x + b.width)) + pad;
+    const y1 = Math.max(...nodes.map((n) => n.y + outerH(n)), ...collectionUI.bounds.map(b => b.y + b.h), ...lineBoxes.map(b => b.y + b.height)) + pad;
+    const zoom = Math.min(layoutFit ? 3 : 2, Math.max(0.1, Math.min(rect.width / (x1 - x0), rect.height / (y1 - y0))));
     const next = {
       zoom,
       panX: rect.width / 2 - ((x0 + x1) / 2) * zoom,
@@ -289,7 +312,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitNonce]);
 
-  // ---- 新卡默认位置：扫描全部节点矩形避让（含 F07 间距），形成有序展开（需求 §F04/F07） ----
+  // ---- 键盘建子卡/同级卡与粘贴文本时避让现有卡片；双击建卡直接落在光标处 ----
   const freePos = useCallback(
     (x: number, y: number, w: number) =>
       resolveOverlapPos(nodes, heights, x, y, w, { gap: GAP, estH: EST_H, widths }),
@@ -297,8 +320,9 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   );
 
   const createTextCard = useCallback(
-    (at: { x: number; y: number }, markdown = "", label = "创建卡片") => {
-      const pos = freePos(Math.round(at.x), Math.round(at.y), DEFAULT_W);
+    (at: { x: number; y: number }, markdown = "", label = "创建卡片", placement: "exact" | "avoid" = "avoid") => {
+      const requested = { x: Math.round(at.x), y: Math.round(at.y) };
+      const pos = placement === "exact" ? requested : freePos(requested.x, requested.y, DEFAULT_W);
       const node: BoardNode = {
         id: makeId("node"),
         type: "text",
@@ -313,18 +337,22 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
     [commit, freePos],
   );
 
-  // ---- 空白处指针：Alt+左键纵向缩放 / 左键平移 / Shift+左键框选 / 点空白清选 ----
+  // ---- 空白处指针：Alt+左键缩放 / 左键平移 / Shift+左键或 Ctrl+左键框选 ----
   const onBackgroundPointerDown = (e: React.PointerEvent) => {
     if (readOnly) return;
+    const ctrlLeftMarquee = e.button === 0 && e.ctrlKey && !e.altKey;
+    if (e.button !== 0 && e.button !== 1) return;
     if (e.target !== e.currentTarget && (e.target as HTMLElement).closest(".node-card, .edge-hit, .edge-label")) return;
+    if (!ctrlLeftMarquee && !e.shiftKey) collectionUI.clearActive();
+    if (ctrlLeftMarquee) e.preventDefault();
     containerRef.current?.focus({ preventScroll: true });
     setEditingLabelId(null);
     const startClient = { x: e.clientX, y: e.clientY };
     const startView = { ...viewRef.current };
     const startWorld = toWorld(e.clientX, e.clientY);
     const zooming = e.altKey && e.button === 0;
-    const directPanning = !zooming && e.button === 0 && !e.shiftKey;
-    const panning = !zooming && (directPanning || spaceRef.current || e.button === 1);
+    const directPanning = !zooming && e.button === 0 && !e.shiftKey && !ctrlLeftMarquee;
+    const panning = !zooming && !ctrlLeftMarquee && (directPanning || spaceRef.current || e.button === 1);
     if (zooming) {
       e.preventDefault();
       setAltZooming(true);
@@ -370,16 +398,16 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
         const [ya, yb] = [Math.min(marq.y0, marq.y1), Math.max(marq.y0, marq.y1)];
         const hit = nodes.filter((n) => {
           const nh = outerH(n);
-          return n.x < xb && n.x + outerW(n) > xa && n.y < yb && n.y + nh > ya;
+          return n.x <= xb && n.x + outerW(n) >= xa && n.y <= yb && n.y + nh >= ya;
         });
         const ids = hit.map((n) => n.id);
         dispatch({
           type: "select",
-          nodes: ev.shiftKey ? [...new Set([...state.selection.nodes, ...ids])] : ids,
-          edges: ev.shiftKey ? state.selection.edges : [],
+          nodes: ctrlLeftMarquee || ev.shiftKey ? [...new Set([...state.selection.nodes, ...ids])] : ids,
+          edges: ctrlLeftMarquee || ev.shiftKey ? state.selection.edges : [],
         });
         setMarquee(null);
-      } else if (!moved && !ev.shiftKey) {
+      } else if (!moved && !ev.shiftKey && !ctrlLeftMarquee) {
         dispatch({ type: "select", nodes: [], edges: [] });
       }
     };
@@ -400,14 +428,16 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   // ---- 卡片拖动（一次拖动 = 一个 moveNode；多选 = 单步骤多 moveNode） ----
   const onCardPointerDown = (e: React.PointerEvent, nodeId: string) => {
     if (readOnly || e.button !== 0) return;
+    if (e.ctrlKey) e.preventDefault();
     if (state.editingId === nodeId) return; // 编辑中不拖卡
     e.stopPropagation();
+    setFrontNodeId(nodeId);
     containerRef.current?.focus({ preventScroll: true });
 
     let dragIds: string[];
     if (state.selection.nodes.includes(nodeId)) {
       dragIds = state.selection.nodes;
-    } else if (e.shiftKey) {
+    } else if (e.shiftKey || e.ctrlKey) {
       dragIds = [...state.selection.nodes, nodeId];
       dispatch({ type: "select", nodes: dragIds, edges: state.selection.edges });
     } else {
@@ -494,6 +524,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
   // ---- 连线：从连接点拖到另一卡 ----
   const onStartConnect = (e: React.PointerEvent, nodeId: string) => {
     if (readOnly) return;
+    setFrontNodeId(nodeId);
     e.stopPropagation();
     e.preventDefault();
     setConnect({ sourceId: nodeId, cursor: toWorld(e.clientX, e.clientY) });
@@ -525,7 +556,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
 
   // ---- 双击：空白建卡；已有卡片进入编辑（文本卡） ----
   const onDoubleClick = (e: React.MouseEvent) => {
-    if (readOnly) return;
+    if (readOnly || e.button !== 0 || e.ctrlKey) return;
     if ((e.target as HTMLElement).closest("input, textarea")) return; // 编辑框内的双击是选词
     const cardEl = (e.target as HTMLElement).closest("[data-node-id]");
     if (cardEl) {
@@ -540,7 +571,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
     }
     if ((e.target as HTMLElement).closest(".edge-hit, .edge-label")) return;
     const pt = toWorld(e.clientX, e.clientY);
-    createTextCard({ x: pt.x - DEFAULT_W / 2, y: pt.y - 30 });
+    createTextCard({ x: pt.x - DEFAULT_W / 2, y: pt.y - 30 }, "", "创建卡片", "exact");
   };
 
   // ---- 文本提交 ----
@@ -662,6 +693,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
       if (e.isComposing) return; // 中文输入法选字优先
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
+    if (collectionUI.handleKey(e)) return;
     const sel = state.selection;
     const selNode = sel.nodes.length === 1 ? file.nodes.find((n) => n.id === sel.nodes[0]) : null;
 
@@ -927,6 +959,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
         data-zoom={view.zoom}
         style={{ transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})` }}
       >
+        {collectionUI.layer}
         <EdgeLayer
           nodes={nodes}
           edges={edges}
@@ -947,6 +980,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
             key={n.id}
             node={n}
             selected={state.selection.nodes.includes(n.id)}
+            front={frontNodeId === n.id}
             editing={state.editingId === n.id}
             blobUrl={n.assetId ? state.blobUrls[n.assetId] : undefined}
             aspect={n.assetId ? aspects[n.id] : undefined}
@@ -957,7 +991,10 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
             onCardPointerUp={onCardPointerUp}
             onStartConnect={onStartConnect}
             onCommitText={onCommitText}
-            onStartEdit={(id) => dispatch({ type: "setEditing", id })}
+            onStartEdit={(id) => {
+              setFrontNodeId(id);
+              dispatch({ type: "setEditing", id });
+            }}
             onCancelEdit={() => dispatch({ type: "setEditing", id: null })}
             onResizeTextEnd={onResizeTextEnd}
             onResizeCaptionWidth={onResizeCaptionWidth}
@@ -1000,6 +1037,7 @@ export function Canvas({ editor, fitNonce, structureView }: CanvasProps) {
           />
         ))}
       </div>
+      {collectionUI.panel}
       {!readOnly && nodes.length === 0 && (
         <div className="canvas-hint">
           双击建卡 · 左键拖动画布 · WASD/方向键平移 · Alt+左键上下拖缩放 · Shift+左键框选 · Enter 编辑

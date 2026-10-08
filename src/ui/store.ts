@@ -1,13 +1,13 @@
 // 编辑器全局状态：React useReducer，无外部状态库。
 // 所有内容修改都经 model 的 commitStep（校验+历史+contentVersion），
 // 视图/文件名等非内容变化直接改 board 元数据（不进历史，契约 op 词汇表不覆盖）。
+import { measureLayoutGeometry } from "./layoutGeometry";
+import { planTidyLayout } from "./layoutPlanner";
 import { useMemo, useReducer } from "react";
 import {
   commitStep,
   createEmptyBoard,
   duplicateGroup,
-  forestRoots,
-  layoutBranchOps,
   makeId,
   redo as modelRedo,
   undo as modelUndo,
@@ -20,6 +20,7 @@ import {
 } from "../model";
 
 export type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
+export interface SaveStamp { sessionId: string; editRevision: number }
 
 export interface EditorState {
   file: BoardFile;
@@ -32,8 +33,11 @@ export interface EditorState {
   clipboard: { nodeIds: string[] } | null; // 内部卡片剪贴板（复制粘贴一组卡片）
   fileHandle: FileSystemFileHandle | null;
   fileName: string; // 展示与下载用文件名
+  fileNameTracksBoardName: boolean; // 新建白板首次保存前，建议文件名随白板名变化
   saveState: SaveState;
   saveError: string | null;
+  sessionId: string; // 区分新建/打开后的编辑会话，避免旧保存结果覆盖新白板状态
+  editRevision: number; // 仅持久化内容变化递增；保存完成时核对快照
   replay: { active: boolean; step: number; playing: boolean };
 }
 
@@ -50,10 +54,11 @@ export type Action =
   | { type: "rename"; name: string }
   | { type: "load"; bundle: DraftBundle; handle: FileSystemFileHandle | null; fileName: string }
   | { type: "newBoard" }
-  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string }
+  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string; stamp: SaveStamp }
   | { type: "markSaving" }
-  | { type: "markSaved" }
-  | { type: "markSaveError"; message: string }
+  | { type: "markSaved"; stamp: SaveStamp }
+  | { type: "markSaveCancelled"; stamp: SaveStamp; previous: SaveState }
+  | { type: "markSaveError"; stamp: SaveStamp; message: string }
   | { type: "replayEnter" }
   | { type: "replayExit" }
   | { type: "replaySet"; step: number }
@@ -80,14 +85,21 @@ export function initialEditorState(): EditorState {
     clipboard: null,
     fileHandle: null,
     fileName: "未命名白板.draft",
+    fileNameTracksBoardName: true,
     saveState: "clean",
     saveError: null,
+    sessionId: globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
+    editRevision: 0,
     replay: { active: false, step: 0, playing: false },
   };
 }
 
 function dirtyOf(s: EditorState): SaveState {
   return s.fileHandle ? "dirty" : "dirty";
+}
+
+function matchesSave(s: EditorState, stamp: SaveStamp): boolean {
+  return s.sessionId === stamp.sessionId && s.editRevision === stamp.editRevision;
 }
 
 export function editorReducer(s: EditorState, a: Action): EditorState {
@@ -110,6 +122,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         editingId: a.editingId !== undefined ? a.editingId : s.editingId,
         saveState: dirtyOf(s),
         saveError: null,
+        editRevision: s.editRevision + 1,
       };
     }
     case "commitError":
@@ -123,6 +136,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         blobs: { ...s.blobs, [a.asset.id]: a.bytes },
         blobUrls: { ...s.blobUrls, [a.asset.id]: URL.createObjectURL(blob) },
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "undo": {
@@ -137,6 +151,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         editingId: null,
         selection: { nodes: [], edges: [] },
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "redo": {
@@ -150,6 +165,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         cursor: r.state.history.length,
         redoStack: s.redoStack.slice(0, -1),
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "select":
@@ -173,7 +189,9 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       return {
         ...s,
         file: { ...s.file, board: { ...s.file.board, name: a.name.trim() } },
+        fileName: s.fileNameTracksBoardName ? `${a.name.trim()}.draft` : s.fileName,
         saveState: dirtyOf(s),
+        editRevision: s.editRevision + 1,
       };
     }
     case "load": {
@@ -186,6 +204,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         cursor: a.bundle.file.history.length,
         fileHandle: a.handle,
         fileName: a.fileName,
+        fileNameTracksBoardName: false,
         saveState: "clean",
       };
     }
@@ -194,12 +213,18 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       return initialEditorState();
     }
     case "setHandle":
-      return { ...s, fileHandle: a.handle, fileName: a.fileName };
+      if (s.sessionId !== a.stamp.sessionId) return s;
+      return { ...s, fileHandle: a.handle, fileName: a.fileName, fileNameTracksBoardName: false };
     case "markSaving":
       return { ...s, saveState: "saving" };
     case "markSaved":
+      if (!matchesSave(s, a.stamp)) return s;
       return { ...s, saveState: "saved", saveError: null };
+    case "markSaveCancelled":
+      if (!matchesSave(s, a.stamp)) return s;
+      return { ...s, saveState: a.previous };
     case "markSaveError":
+      if (!matchesSave(s, a.stamp)) return s;
       return { ...s, saveState: "error", saveError: a.message };
     case "replayEnter":
       if (s.file.history.length === 0) return s; // 脱历史文件不假装可回放
@@ -225,7 +250,7 @@ export interface EditorApi {
   dispatch: React.Dispatch<Action>;
   commit: (label: string, ops: Op[], select?: { nodes?: string[]; edges?: string[] }, editingId?: string | null) => boolean;
   commitAssetNode: (label: string, asset: BoardAsset, bytes: Uint8Array, ops: Op[], select?: { nodes?: string[] }) => boolean;
-  layoutTidy: () => void;
+    layoutTidy: (selectedOnly?: boolean) => { ok: boolean; moved: number; outcome?: "changed" | "already-tidy" | "unresolved" };
   duplicateSelection: () => void;
 }
 
@@ -242,10 +267,22 @@ export function useEditor(): EditorApi {
       dispatch({ type: "commit", label, ops, select });
       return true;
     };
-    const layoutTidy = () => {
-      const roots = state.selection.nodes.length > 0 ? state.selection.nodes : forestRoots(state.file);
-      const ops = layoutBranchOps(state.file, roots);
-      if (ops.length > 0) dispatch({ type: "commit", label: "布局整理", ops });
+    const layoutTidy = (selectedOnly = false) => {
+      if (state.replay.active || state.editingId || !state.file.nodes.length) return { ok: false, moved: 0 };
+      const geometry = measureLayoutGeometry(state.file.nodes);
+      if (!geometry) {
+        dispatch({ type: "commitError", message: "卡片或字体、图片仍在加载，请加载完成后再整理。" });
+        return { ok: false, moved: 0 };
+      }
+      const canvas = document.querySelector<HTMLElement>(".canvas");
+      const aspectRatio = canvas && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 1.6;
+      const planned = planTidyLayout(state.file, selectedOnly ? state.selection.nodes : [], geometry, aspectRatio);
+      if (!planned.ok) {
+        dispatch({ type: "commitError", message: "当前关系线或集合边界无法全部避开；请调整相关卡片后再整理。" });
+        return { ok: false, moved: 0 };
+      }
+      if (planned.ops.length > 0) dispatch({ type: "commit", label: "布局整理", ops: planned.ops });
+      return { ok: true, moved: planned.ops.length, outcome: planned.outcome };
     };
     const duplicateSelection = () => {
       if (state.selection.nodes.length === 0) return;

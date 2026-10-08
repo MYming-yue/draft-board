@@ -10,6 +10,9 @@ interface ToolbarProps {
   onExportStrip: () => void;
   onExportPng: () => void;
   onFit: () => void;
+  onLayout: (selectedOnly: boolean) => void;
+  layoutBusy: boolean;
+  layoutResult: string | null;
   structureView: boolean;
   onToggleStructure: () => void;
   onInstall?: () => void;
@@ -60,6 +63,7 @@ export function Toolbar(p: ToolbarProps) {
 
   return (
     <div className="toolbar">
+      <span id="collection-controls" className="collection-controls" />
       <span className="brand">草稿白板</span>
       <input
         className="board-name"
@@ -80,9 +84,10 @@ export function Toolbar(p: ToolbarProps) {
       <button disabled={!canRedo} onClick={() => dispatch({ type: "redo" })} title="Ctrl+Shift+Z">
         重做
       </button>
-      <button onClick={p.editor.layoutTidy} disabled={state.replay.active} title="对选中分支（未选中则全部）做树状分层整理，可一次撤销">
-        布局整理
+      <button onClick={(event) => p.onLayout(event.shiftKey)} disabled={p.layoutBusy || state.replay.active || !!state.editingId} aria-busy={p.layoutBusy} title="整理全板并适应视图；按住 Shift 点击时只整理选中卡片及其后代">
+        {p.layoutBusy ? "整理中…" : "布局整理"}
       </button>
+      {p.layoutResult && <span className="layout-result" role="status">{p.layoutResult}</span>}
       <button onClick={p.onFit} title="回到全部内容可见">适应视图</button>
       <button aria-pressed={p.structureView} onClick={p.onToggleStructure} title="只切换备注显示，不修改卡片内容或位置">
         {p.structureView ? "显示备注" : "结构视图"}
@@ -95,18 +100,16 @@ export function Toolbar(p: ToolbarProps) {
       >
         回放
       </button>
-      {single && (
-        <span className="accent-picker" title="强调色">
-          {ACCENTS.map((a) => (
-            <button
-              key={a}
-              className={`accent-dot accent-${a}` + ((single.accent ?? "default") === a ? " active" : "")}
-              title={ACCENT_LABEL[a]}
-              onClick={() => setAccent(a)}
-            />
-          ))}
-        </span>
-      )}
+      <span className={"accent-picker" + (single ? "" : " hidden")} title="强调色" aria-hidden={!single}>
+        {ACCENTS.map((a) => (
+          <button
+            key={a}
+            className={`accent-dot accent-${a}` + ((single?.accent ?? "default") === a ? " active" : "")}
+            title={ACCENT_LABEL[a]}
+            onClick={() => setAccent(a)}
+          />
+        ))}
+      </span>
       <span className="spacer" />
       {state.saveError && <span className="save-error" title={state.saveError}>⚠ {state.saveError}</span>}
       <span className={`save-status ${status.cls}`}>{status.text}</span>

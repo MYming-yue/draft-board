@@ -97,6 +97,11 @@ body,
   min-width: 80px;
   text-align: right;
 }
+.layout-result {
+  color: #3d5ab5;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .save-status.saved {
   color: #3d9d63;
 }
@@ -122,6 +127,10 @@ body,
   gap: 4px;
   align-items: center;
   margin-left: 6px;
+}
+.accent-picker.hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 .accent-dot {
   width: 16px;
@@ -204,6 +213,9 @@ body,
   font-size: 14px;
   line-height: 1.55;
   user-select: none;
+}
+.node-card.front {
+  z-index: 2;
 }
 .node-card.editing {
   /* 高于画布内的卡片手柄、连线编辑框和对齐辅助线。 */
@@ -615,6 +627,7 @@ body,
 /* ---- 框选 ---- */
 .marquee {
   position: absolute;
+  z-index: 9;
   border: 1px dashed var(--selection);
   background: rgba(91, 108, 255, 0.08);
   pointer-events: none;
@@ -671,3 +684,25 @@ body,
   white-space: nowrap;
   color: var(--text-dim);
 }
+
+/* 集合在卡片和连线下方；只有边线和标题接收指针，内部仍可框选/平移。 */
+.collection-frame { position: absolute; pointer-events: none; }
+.collection-outline { position: absolute; overflow: visible; pointer-events: none; filter: drop-shadow(0 3px 4px rgba(35,45,65,.18)); }
+.collection-outline rect, .collection-outline ellipse { fill: none; stroke: #8793a5; stroke-width: 1.25; pointer-events: stroke; cursor: grab; }
+.collection-frame.active .collection-outline rect, .collection-frame.active .collection-outline ellipse { stroke: #5b6cff; }
+.collection-label { position: absolute; left: 50%; top: 0; transform: translate(-50%, -50%); max-width: min(420px, 85%); pointer-events: auto; border: 1px solid #b9c2d0; background: #f4f5f7; color: #42516b; padding: 5px 12px; border-radius: 5px; cursor: grab; white-space: normal; overflow-wrap: anywhere; }
+.collection-label span { margin-left: 8px; font-size: 11px; color: #6b7280; }
+.collection-label small { display: block; margin-top: 3px; max-height: 3em; overflow: hidden; }
+.collection-panel { position: absolute; bottom: 16px; left: 16px; z-index: 9; max-width: calc(100% - 32px); width: 390px; padding: 10px; display: flex; flex-direction: column; gap: 7px; border: 1px solid #d7dbe2; border-radius: 10px; background: rgba(255,255,255,.96); box-shadow: 0 4px 18px #18203012; font-size: 12px; }
+.collection-panel-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.collection-panel button, .collection-panel input, .collection-panel select { border: 1px solid #d7dbe2; border-radius: 5px; padding: 5px 7px; background: white; color: #34425a; font: inherit; min-width: 0; }
+.collection-panel button { cursor: pointer; }
+.collection-panel button:hover:not(:disabled) { background: #eef1ff; }
+.collection-panel button:disabled { opacity: .4; cursor: default; }
+.collection-panel input[type=number] { width: 62px; }
+.collection-panel-row select { flex: 1; }
+.collection-panel p { margin: 0; color: #768096; font-size: 11px; }
+
+.collection-controls { order: 1; }
+.collection-entry { display: flex; gap: 5px; align-items: center; }
+.collection-entry select { max-width: 150px; padding: 4px; border: 1px solid var(--card-border); border-radius: 5px; background: white; }

@@ -52,10 +52,10 @@ describe(".draft 容器（§2-A）", () => {
     expect(parsed.file.nodes.find((n) => n.id === N("img"))!.markdown).toBe("**说明** $E=mc^2$");
   });
 
-  it("formatVersion 主版本 2 → E_FORMAT_UNSUPPORTED（I9，不静默丢内容）", () => {
+  it("formatVersion 主版本 99 → E_FORMAT_UNSUPPORTED（I9，不静默丢内容）", () => {
     const s = createEmptyBoard("t");
     const zip = zipSync({
-      "board.json": strToU8(JSON.stringify({ ...s, formatVersion: "2.0" })),
+      "board.json": strToU8(JSON.stringify({ ...s, formatVersion: "99.0" })),
     });
     expect(() => parseBoard(zip)).toThrowError(DraftError);
     try {

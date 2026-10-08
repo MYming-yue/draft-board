@@ -64,6 +64,29 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
     const at = (path: string) => `ops.${i}.${path}`;
 
     switch (op.op) {
+      case "addCollection":
+      case "updateCollection":
+      case "removeCollection": {
+        const items = state.collections ?? [];
+        const id = op.op === "addCollection" ? op.collection.id : op.collectionId;
+        const existing = items.find(c => c.id === id);
+        if (op.op === "addCollection" && existing) return fail(err("E_DUP_ID", `集合已存在：${id}`, i));
+        if (op.op !== "addCollection" && !existing) return fail(err("E_SCHEMA", `集合不存在：${id}`, i));
+        if (op.op === "removeCollection") {
+          state.collections = items.filter(c => c.id !== id);
+          normalized.push({ ...op, before: structuredClone(existing!) });
+        } else {
+          const next = structuredClone(op.op === "addCollection" ? op.collection : op.after);
+          if (next.nodeIds.some(id => !findNode(state, id))) return fail(err("E_UNKNOWN_NODE", "集合成员不存在", i));
+          state.collections = op.op === "addCollection" ? [...items, next] : items.map(c => c.id === id ? next : c);
+          normalized.push(op.op === "addCollection"
+            ? { op: "addCollection", collection: next, before: null, after: structuredClone(next) }
+            : { op: "updateCollection", collectionId: id, before: structuredClone(existing!), after: next });
+        }
+        state.formatVersion = "2.0";
+        break;
+      }
+
       case "addNode": {
         const node = structuredClone(op.node);
         if (findNode(state, node.id)) return fail(err("E_DUP_ID", `节点 id 已存在：${node.id}`, i, at("node.id")));
@@ -77,13 +100,15 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
         const node = findNode(state, op.nodeId);
         if (!node) return fail(err("E_UNKNOWN_NODE", `节点不存在：${op.nodeId}`, i, at("nodeId")));
         // I1：关联边同步骤级联移除
+        const memberships = state.collections?.filter(c => c.nodeIds.includes(node.id));
+        if (state.collections) state.collections = state.collections.map(c => ({ ...c, nodeIds: c.nodeIds.filter(id => id !== node.id) }));
         const cascaded = state.edges.filter((e) => e.from === node.id || e.to === node.id);
         state.edges = state.edges.filter((e) => e.from !== node.id && e.to !== node.id);
         state.nodes = state.nodes.filter((n) => n.id !== node.id);
         normalized.push({
           op: "removeNode",
           nodeId: node.id,
-          before: { node: structuredClone(node), edges: structuredClone(cascaded) },
+          before: { node: structuredClone(node), edges: structuredClone(cascaded), ...(memberships?.length ? { collections: structuredClone(memberships) } : {}) },
           after: null,
         });
         break;
@@ -252,12 +277,25 @@ export function invertOps(ops: Op[]): Op[] {
   for (let i = ops.length - 1; i >= 0; i--) {
     const op = ops[i];
     switch (op.op) {
+      case "addCollection":
+        inverse.push({ op: "removeCollection", collectionId: op.collection.id, before: null, after: null });
+        break;
+      case "removeCollection":
+        if (!op.before) throw new Error("removeCollection 缺 before");
+        inverse.push({ op: "addCollection", collection: structuredClone(op.before), before: null, after: structuredClone(op.before) });
+        break;
+      case "updateCollection":
+        if (!op.before) throw new Error("updateCollection 缺 before");
+        inverse.push({ op: "updateCollection", collectionId: op.collectionId, before: null, after: structuredClone(op.before) });
+        break;
       case "addNode":
         inverse.push({ op: "removeNode", nodeId: op.node.id, before: null, after: null });
         break;
       case "removeNode": {
         if (!op.before) throw new Error("removeNode 缺 before，无法求逆");
         inverse.push({ op: "addNode", node: structuredClone(op.before.node), before: null, after: structuredClone(op.before.node) });
+        for (const collection of op.before.collections ?? [])
+          inverse.push({ op: "updateCollection", collectionId: collection.id, before: null, after: structuredClone(collection) });
         for (const edge of op.before.edges)
           inverse.push({ op: "addEdge", edge: structuredClone(edge), before: null, after: structuredClone(edge) });
         break;

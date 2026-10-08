@@ -18,6 +18,19 @@ function v(path: string, message: string): ShapeViolation {
   return { path, message };
 }
 
+export function validateCollectionShape(c: unknown, path = "collection"): ShapeViolation | null {
+  if (!isObj(c)) return v(path, "集合必须是对象");
+  if (!isStr(c.id) || !ID_PATTERNS.collection.test(c.id)) return v(`${path}.id`, "集合 id 非法");
+  if (!isStr(c.name) || !c.name.trim()) return v(`${path}.name`, "集合名称不能为空");
+  if (c.description !== undefined && !isStr(c.description)) return v(`${path}.description`, "关系说明须为字符串");
+  if (!["rectangle", "ellipse", "circle"].includes(c.shape as string)) return v(`${path}.shape`, "集合形状非法");
+  if (!isNum(c.x) || !isNum(c.y)) return v(`${path}.x`, "集合位置须为有限数值");
+  if (!Array.isArray(c.nodeIds) || c.nodeIds.some(id => !isStr(id) || !ID_PATTERNS.node.test(id)))
+    return v(`${path}.nodeIds`, "成员须为合法卡片 id 数组");
+  if (new Set(c.nodeIds).size !== c.nodeIds.length) return v(`${path}.nodeIds`, "集合内成员不能重复");
+  return null;
+}
+
 export function validateNodeShape(n: unknown, path = "node"): ShapeViolation | null {
   if (!isObj(n)) return v(path, "节点必须是对象");
   if (!isStr(n.id) || !ID_PATTERNS.node.test(n.id)) return v(`${path}.id`, "节点 id 须匹配 ^n_[A-Za-z0-9_-]{6,32}$");
@@ -76,6 +89,14 @@ export function validateOpShape(o: unknown): ShapeViolation | null {
   if (!isStr(o.op) || !OP_NAMES.includes(o.op as never)) return v("op", `未知 op：${String(o.op)}`);
   const after = o.after;
   switch (o.op) {
+    case "addCollection": return validateCollectionShape(o.collection);
+    case "updateCollection":
+    case "removeCollection":
+      if (!isStr(o.collectionId) || !ID_PATTERNS.collection.test(o.collectionId)) return v("collectionId", "集合 id 非法");
+      if (o.op === "removeCollection") return null;
+      { const bad = validateCollectionShape(after, "after"); if (bad) return bad; }
+      if ((after as Record<string, unknown>).id !== o.collectionId) return v("after.id", "更新不能改变集合身份");
+      return null;
     case "addNode":
       return validateNodeShape(o.node, "node");
     case "removeNode":
@@ -175,6 +196,20 @@ export function validateBoardFileShape(f: unknown): ShapeViolation | null {
   for (let i = 0; i < f.nodes.length; i++) {
     const bad = validateNodeShape(f.nodes[i], `nodes.${i}`);
     if (bad) return bad;
+  }
+  if (f.collections !== undefined) {
+    if (!Array.isArray(f.collections)) return v("collections", "collections 须为数组");
+    const ids = new Set<string>();
+    const nodeIds = new Set((f.nodes as { id: string }[]).map(n => n.id));
+    for (let i = 0; i < f.collections.length; i++) {
+      const c = f.collections[i];
+      const bad = validateCollectionShape(c, `collections.${i}`);
+      if (bad) return bad;
+      const item = c as { id: string; nodeIds: string[] };
+      if (ids.has(item.id)) return v(`collections.${i}.id`, "集合 id 重复");
+      ids.add(item.id);
+      if (item.nodeIds.some(id => !nodeIds.has(id))) return v(`collections.${i}.nodeIds`, "集合引用不存在的卡片");
+    }
   }
   if (!Array.isArray(f.edges)) return v("edges", "edges 须为数组");
   for (let i = 0; i < f.edges.length; i++) {

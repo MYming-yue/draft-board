@@ -12,6 +12,7 @@ const ok = (name, condition) => {
 };
 
 const testBoard = createEmptyBoard("PWA 双击打开测试");
+testBoard.nodes.push({ id: "n_reload1", type: "text", markdown: "已保存的卡片", x: 100, y: 100, w: 240 });
 const bytes = serializeBoard(testBoard, {});
 
 const server = spawn(
@@ -82,10 +83,72 @@ const launchState = await page.evaluate(() => ({
 ok("launchQueue 自动载入双击文件", launchState.boardName === "PWA 双击打开测试");
 ok("保留原文件句柄用于保存", launchState.hasHandle && launchState.fileName === "双击测试.draft");
 
+const card = page.locator('[data-node-id="n_reload1"]');
+await card.dblclick();
+await page.waitForFunction(() => window.__state.editingId === "n_reload1");
+const editReload = page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
+const editDialog = await page.waitForEvent("dialog", { timeout: 5000 });
+const editDialogType = editDialog.type();
+await editDialog.dismiss();
+await editReload;
+ok("卡片编辑尚未提交时刷新也会提示", editDialogType === "beforeunload");
+await page.keyboard.press("Escape");
+await page.waitForFunction(() => window.__state.editingId === null);
+await page.locator(".board-name").fill("刷新保护测试");
+await page.waitForFunction(() => window.__state.saveState === "dirty");
+await page.evaluate(() => { window.__savePickerCalled = 0; window.showSaveFilePicker = async () => { window.__savePickerCalled++; throw new DOMException("cancelled", "AbortError"); }; });
+await page.getByRole("button", { name: "另存为", exact: true }).click();
+await page.waitForFunction(() => window.__savePickerCalled === 1);
+ok("取消另存为仍保持未保存状态", (await page.evaluate(() => window.__state.saveState)) === "dirty");
+const reloadAttempt = page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
+const unloadDialog = await page.waitForEvent("dialog", { timeout: 5000 });
+const unloadType = unloadDialog.type();
+await unloadDialog.dismiss();
+await reloadAttempt;
+ok("浏览器刷新对未保存白板弹出离开提示", unloadType === "beforeunload");
+ok("取消刷新后保留未保存内容", (await page.locator(".board-name").inputValue()) === "刷新保护测试");
 await page.locator(".board-name").fill("PWA 保存回写测试");
 await page.keyboard.press("Control+s");
 await page.waitForFunction(() => window.__pwaSavedBytes > 0 && window.__state.saveState === "saved");
 ok("Ctrl+S 写回启动时收到的文件句柄", (await page.evaluate(() => window.__pwaSavedBytes)) > 0);
+
+// 挂起真实 UI 的保存回调，在完成前切换会话；普通保存和另存为都不能污染新白板。
+for (const [saveAs, failSave] of [[false, false], [true, false], [false, true], [true, true]]) {
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  await page.evaluate(failSave => {
+    window.__oldSaveStarted = false;
+    window.__oldSaveClosed = false;
+    window.showSaveFilePicker = async () => ({
+      kind: "file", name: "旧会话保存.draft",
+      async createWritable() { return {
+        async write() { window.__oldSaveStarted = true; },
+        async close() {
+          await new Promise(resolve => { window.__releaseOldSave = resolve; });
+          window.__oldSaveClosed = true;
+          if (failSave) throw new Error("模拟旧会话写入失败");
+        },
+      }; },
+    });
+  }, failSave);
+  await page.getByRole("button", { name: saveAs ? "另存为" : "保存", exact: true }).click();
+  await page.waitForFunction(() => window.__oldSaveStarted);
+  const oldSession = await page.evaluate(() => window.__state.sessionId);
+  if (saveAs) {
+    await page.evaluate(() => window.__launchConsumer({ files: [window.__launchHandle] }));
+  } else {
+    await page.getByRole("button", { name: "新建", exact: true }).click();
+  }
+  await page.waitForFunction(old => window.__state.sessionId !== old, oldSession);
+  const before = await page.evaluate(() => ({ fileName: window.__state.fileName, saveState: window.__state.saveState, saveError: window.__state.saveError }));
+  await page.evaluate(() => window.__releaseOldSave());
+  await page.waitForFunction(() => window.__oldSaveClosed);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  ok(`${saveAs ? "另存为" : "首次保存"}${failSave ? "失败" : "成功"}旧回调不改变新会话句柄、文件名或保存状态`, await page.evaluate(({ saveAs, before }) =>
+    window.__state.fileHandle === (saveAs ? window.__launchHandle : null)
+    && window.__state.fileName === before.fileName && window.__state.saveState === before.saveState
+    && window.__state.saveError === before.saveError,
+  { saveAs, before }));
+}
 
 const manifest = await (await page.request.get(`${URL}manifest.webmanifest`)).json();
 ok("manifest 声明 .draft 文件处理器", manifest.file_handlers?.[0]?.accept?.["application/octet-stream"]?.includes(".draft"));

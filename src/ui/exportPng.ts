@@ -5,7 +5,7 @@ export async function exportBoardPng(fileName: string): Promise<void> {
   const world = document.querySelector<HTMLElement>(".world");
   if (!world) throw new Error("找不到画布");
 
-  const cards = [...world.querySelectorAll<HTMLElement>(".node-card")];
+  const cards = [...world.querySelectorAll<HTMLElement>(".node-card, .collection-frame")];
   if (cards.length === 0) throw new Error("白板为空，无可导出内容");
   const pad = 60;
   let x0 = Infinity,

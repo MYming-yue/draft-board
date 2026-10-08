@@ -36,6 +36,10 @@ export interface OpenedDraft {
   fileName: string;
 }
 
+export type SaveResult =
+  | { status: "saved"; handle: FileSystemFileHandle | null }
+  | { status: "cancelled" };
+
 export async function openDraftHandle(handle: FileSystemFileHandle): Promise<OpenedDraft> {
   const file = await handle.getFile();
   const bundle = parseBoard(new Uint8Array(await file.arrayBuffer()));
@@ -81,11 +85,11 @@ function download(bytes: Uint8Array, fileName: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-/** 保存到既有 handle；无 handle 时另存（弹窗或下载兜底）。返回写到的 handle。 */
+/** 保存到既有 handle；无 handle 时另存（弹窗或下载兜底）。取消选择不算已保存。 */
 export async function saveDraft(
   state: Pick<EditorState, "file" | "blobs" | "fileHandle" | "fileName">,
   opts: { forcePicker?: boolean; historyMode?: "full" | "strip" } = {},
-): Promise<FileSystemFileHandle | null> {
+): Promise<SaveResult> {
   const file = opts.historyMode === "strip" ? stripHistory(state.file) : state.file;
   const bytes = serializeBoard(file, state.blobs);
   const suggested = state.fileName || `${state.file.board.name}.draft`;
@@ -101,14 +105,14 @@ export async function saveDraft(
         const w = await handle.createWritable();
         await w.write(bytes as FileSystemWriteChunkType);
         await w.close();
-        return null; // 不切换当前编辑文件的 handle
+        return { status: "saved", handle: null }; // 不切换当前编辑文件的 handle
       } catch (e) {
-        if ((e as DOMException).name === "AbortError") return null;
+        if ((e as DOMException).name === "AbortError") return { status: "cancelled" };
         throw e;
       }
     }
     download(bytes, suggested.replace(/\.draft$/, "") + ".当前草稿.draft");
-    return null;
+    return { status: "saved", handle: null };
   }
 
   let handle = opts.forcePicker ? null : state.fileHandle;
@@ -116,7 +120,7 @@ export async function saveDraft(
     try {
       handle = await window.showSaveFilePicker({ suggestedName: suggested, types: DRAFT_TYPES });
     } catch (e) {
-      if ((e as DOMException).name === "AbortError") return null;
+      if ((e as DOMException).name === "AbortError") return { status: "cancelled" };
       throw e;
     }
   }
@@ -124,11 +128,11 @@ export async function saveDraft(
     const w = await handle.createWritable();
     await w.write(bytes as FileSystemWriteChunkType);
     await w.close();
-    return handle;
+    return { status: "saved", handle };
   }
   // 无 FS Access：下载兜底（浏览器下载目录写入由浏览器保证完整）
   download(bytes, suggested);
-  return null;
+  return { status: "saved", handle: null };
 }
 
 /**

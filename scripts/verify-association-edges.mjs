@@ -75,6 +75,12 @@ try {
     await page.locator('[data-edge-id="e_vertical"]').waitFor({ state: "attached" });
     await page.evaluate(() => document.fonts.ready);
     const path = page.locator('[data-edge-id="e_vertical"] .edge-path');
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[data-edge-id="e_vertical"] .edge-path');
+      if (!el) return false;
+      const xs = [0, .25, .5, .75, 1].map(t => el.getPointAtLength(el.getTotalLength() * t).x);
+      return Math.max(...xs) - Math.min(...xs) < 0.01;
+    });
     const xs = await path.evaluate(el => [0, .25, .5, .75, 1].map(t => el.getPointAtLength(el.getTotalLength() * t).x));
     assert.ok(Math.max(...xs) - Math.min(...xs) < 0.01, "纵向连线整条路径保持竖直");
     await page.screenshot({ path: `artifacts/vertical-arrow-${zoom}.png` });

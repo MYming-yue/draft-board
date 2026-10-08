@@ -10,7 +10,8 @@ it("恢复记录、去重过滤，并按最近使用排序", () => {
   rememberGreek("α");
   expect(readGreekHistory()).toEqual(["α", "τ"]);
   expect(sortedGreek(readGreekHistory()).slice(0, 3).map(g => g.symbol)).toEqual(["α", "τ", "β"]);
-  expect(new Set(GREEK.map(g => g.symbol)).size).toBe(54);
+  expect(new Set(GREEK.map(g => g.symbol)).size).toBe(55);
+  expect(GREEK.find(g => g.symbol === "∇")?.name).toBe("nabla（梯度算子）");
 });
 it("存储不可用时仍可记住会话使用顺序", () => {
   vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
@@ -23,6 +24,7 @@ it.each([
   String.raw`\lim_{x\to 0}`, String.raw`\prod_{x=1}^{n}`, String.raw`\log_{a}{x}`,
   String.raw`\begin{cases} x & t>0 \\ 0 & t\le 0 \end{cases}`,
   String.raw`\mathrm{H_2O}`, String.raw`\xrightarrow{t}`, String.raw`\rightleftharpoons`,
+  String.raw`a \sim b`,
 ])("新增公式可由当前 KaTeX 渲染：%s", latex => {
   const html = renderMarkdown(`$$${latex}$$`);
   expect(html).toContain("katex");

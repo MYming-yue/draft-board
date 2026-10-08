@@ -192,7 +192,7 @@ ok("拖动卡片生效", Math.abs(messyPos.x - origPos.x) > 40 || Math.abs(messy
 await page.mouse.click(90, 720); // 点空白清选 → 布局整理作用于全部根
 await page.waitForTimeout(200);
 await page.getByRole("button", { name: "布局整理" }).click();
-await page.waitForTimeout(400);
+await page.getByRole("button", { name: "整理中…" }).waitFor({ state: "hidden", timeout: 120000 });
 const afterPos = await nodePos(1);
 ok("布局整理移动了卡片", Math.abs(messyPos.x - afterPos.x) > 1 || Math.abs(messyPos.y - afterPos.y) > 1);
 ok("整理后 parentChild 边仍在", (await page.locator(".edge-path.edge-parent").count()) === 2);
@@ -349,6 +349,7 @@ const dt = await page.evaluateHandle(() => {
 await page.dispatchEvent(".canvas", "drop", { dataTransfer: dt });
 await page.waitForTimeout(400);
 ok("拖入图片生成图片卡", (await page.locator(".node-card img.node-image").count()) === 1);
+await page.getByRole("button", { name: "适应视图" }).click(); // 缩放手柄须完整落在视口内。
 const imgNodeId = await page.evaluate(() => window.__state.file.nodes.find((n) => n.type === "image")?.id);
 const imgSize0 = await page.evaluate(() => {
   const n = window.__state.file.nodes.find((x) => x.type === "image");
@@ -641,21 +642,23 @@ const panMore = async () => {
 };
 const freeSpot = async () => {
   const occ = await page.evaluate(() => {
-    const v = window.__state.file.board.view;
-    const tb = document.querySelector(".toolbar").offsetHeight;
+    const canvas = document.querySelector(".canvas").getBoundingClientRect();
     return {
-      pan: v,
-      tb,
-      rects: window.__state.file.nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h ?? 100 })),
+      zoom: window.__state.file.board.view.zoom,
+      canvas: { left: canvas.left, top: canvas.top, right: canvas.right, bottom: canvas.bottom },
+      rects: [...document.querySelectorAll(".node-card")].map(el => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }),
     };
   });
   for (let y = 120; y < 700; y += 110) {
     for (let x = 80; x < 1080; x += 250) {
-      const wx = (x - occ.pan.panX) / occ.pan.zoom;
-      const wy = (y - occ.tb - occ.pan.panY) / occ.pan.zoom;
-      const hit = occ.rects.some(
-        (r) => wx < r.x + r.w + 80 && wx + 240 + 80 > r.x && wy < r.y + r.h + 80 && wy + 100 + 80 > r.y,
-      );
+      const cardX = x - 120 * occ.zoom, cardY = y - 30 * occ.zoom;
+      const cardW = 240 * occ.zoom, cardH = 100 * occ.zoom;
+      if (cardX < occ.canvas.left + 20 || cardX + cardW > occ.canvas.right - 20 || cardY < occ.canvas.top + 20 || cardY + cardH > occ.canvas.bottom - 20) continue;
+      const gap = 80 * occ.zoom;
+      const hit = occ.rects.some(r => cardX < r.x + r.w + gap && cardX + cardW + gap > r.x && cardY < r.y + r.h + gap && cardY + cardH + gap > r.y);
       if (!hit) return { x, y };
     }
   }
@@ -713,6 +716,7 @@ await page.keyboard.insertText("乙B");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
 const yiIds = await idByMd();
+await page.getByRole("button", { name: "适应视图" }).click();
 await page.locator(`[data-node-id="${yiIds["乙A"]}"]`).hover();
 const yhb = await page.locator(`[data-node-id="${yiIds["乙A"]}"] .connect-handle`).boundingBox();
 const ybb = await page.locator(`[data-node-id="${yiIds["乙B"]}"]`).boundingBox();
@@ -940,6 +944,136 @@ const mW1 = await page.evaluate(id => window.__state.file.nodes.find(n => n.id =
 ok("混合卡调整阅读宽度", mW1 > mW0 + 80);
 ok("混合卡拖角：公式字号不变", Math.abs(mK1 - mK0) < 2);
 
+// 双击建卡遵循光标位置，即使新卡外框与邻卡重叠；缩放后仍如此。
+const placementPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+placementPage.on("pageerror", (e) => errors.push("placement pageerror: " + e.message));
+await placementPage.goto(URL);
+await placementPage.mouse.dblclick(620, 360);
+await placementPage.getByRole("textbox", { name: "卡片正文", exact: true }).fill("邻近卡片");
+await placementPage.keyboard.press("Control+Enter");
+const placementCards = placementPage.locator(".node-card");
+const firstPlacementCard = placementCards.first();
+async function doubleClickNextTo(card, label) {
+  const beforeCount = await placementCards.count();
+  const box = await card.boundingBox();
+  const point = { x: box.x + box.width + 40, y: box.y + box.height / 2 };
+  await placementPage.evaluate(() => {
+    window.__placementClick = null;
+    const canvas = document.querySelector(".canvas");
+    canvas.addEventListener("dblclick", e => {
+      const rect = canvas.getBoundingClientRect();
+      window.__placementClick = {
+        x: e.clientX, y: e.clientY, left: rect.left, top: rect.top,
+        view: { ...window.__state.file.board.view },
+      };
+    }, { once: true, capture: true });
+  });
+  await placementPage.mouse.dblclick(point.x, point.y);
+  const clicked = await placementPage.evaluate(() => window.__placementClick);
+  const expected = {
+    x: Math.round((clicked.x - clicked.left - clicked.view.panX) / clicked.view.zoom - 120),
+    y: Math.round((clicked.y - clicked.top - clicked.view.panY) / clicked.view.zoom - 30),
+  };
+  await placementPage.waitForFunction(n => window.__state.file.nodes.length === n, beforeCount + 1);
+  const created = await placementPage.evaluate(() => {
+    const node = window.__state.file.nodes.at(-1);
+    return { id: node.id, x: node.x, y: node.y, editingId: window.__state.editingId };
+  });
+  ok(label + "光标原地落卡", created.x === expected.x && created.y === expected.y);
+  ok(label + "立即聚焦编辑", created.editingId === created.id &&
+    await placementPage.evaluate(id => document.activeElement?.closest(".node-card")?.dataset.nodeId === id, created.id));
+  const newCard = placementPage.locator('[data-node-id="' + created.id + '"]');
+  const newBox = await newCard.boundingBox();
+  ok(label + "编辑卡仍在双击点附近",
+    Math.abs(newBox.x + 120 * clicked.view.zoom - clicked.x) < 2 &&
+    Math.abs(newBox.y + 30 * clicked.view.zoom - clicked.y) < 2);
+  ok(label + "允许与邻卡重叠",
+    Math.min(box.x + box.width, newBox.x + newBox.width) > Math.max(box.x, newBox.x) &&
+    Math.min(box.y + box.height, newBox.y + newBox.height) > Math.max(box.y, newBox.y));
+  return newCard;
+}
+const secondPlacementCard = await doubleClickNextTo(firstPlacementCard, "默认缩放：");
+await placementPage.screenshot({ path: "artifacts/double-click-exact-default.png" });
+await placementPage.getByRole("textbox", { name: "卡片正文", exact: true }).fill("第二张卡片");
+await placementPage.keyboard.press("Control+Enter");
+await placementPage.mouse.move(950, 620);
+await placementPage.keyboard.down("Control");
+await placementPage.mouse.wheel(0, -180);
+await placementPage.keyboard.up("Control");
+await placementPage.waitForTimeout(180);
+ok("双击落点回归使用非 100% 缩放", await placementPage.evaluate(() => window.__state.file.board.view.zoom !== 1));
+await doubleClickNextTo(secondPlacementCard, "缩放后：");
+await placementPage.screenshot({ path: "artifacts/double-click-exact-zoom.png" });
+await placementPage.close();
+// Ctrl+左键逐张加选；从空白处左拖捕网，边缘接触也加入选区。
+const selectionPage = await browser.newPage({ viewport: { width: 1100, height: 760 } });
+selectionPage.on("pageerror", (e) => errors.push("selection pageerror: " + e.message));
+await selectionPage.goto(URL);
+for (const [x, label] of [[190, "选区 A"], [460, "选区 B"], [770, "选区 C"]]) {
+  await selectionPage.mouse.dblclick(x, 260);
+  await selectionPage.getByRole("textbox", { name: "卡片正文", exact: true }).fill(label);
+  await selectionPage.keyboard.press("Control+Enter");
+}
+const selectionIds = await selectionPage.evaluate(() => window.__state.file.nodes.map(n => n.id));
+const selectionCards = selectionIds.map(id => selectionPage.locator('[data-node-id="' + id + '"]'));
+await selectionPage.mouse.click(1000, 620);
+const selectionVersion = await selectionPage.evaluate(() => ({
+  version: window.__state.file.board.contentVersion,
+  history: window.__state.file.history.length,
+}));
+async function ctrlLeftClickCard(card) {
+  const box = await card.boundingBox();
+  await selectionPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "left" });
+}
+const selectedIds = () => selectionPage.evaluate(() => window.__state.selection.nodes);
+await selectionPage.keyboard.down("Control");
+await ctrlLeftClickCard(selectionCards[0]);
+await ctrlLeftClickCard(selectionCards[1]);
+await ctrlLeftClickCard(selectionCards[0]);
+await selectionPage.mouse.click(1000, 620, { button: "left" });
+await selectionPage.keyboard.up("Control");
+ok("Ctrl+左键连续加选且空白点击不清空", JSON.stringify(await selectedIds()) === JSON.stringify(selectionIds.slice(0, 2)));
+const cBox = await selectionCards[2].boundingBox();
+await selectionPage.keyboard.down("Control");
+await selectionPage.mouse.move(cBox.x - 55, cBox.y - 25);
+await selectionPage.mouse.down({ button: "left" });
+await selectionPage.mouse.move(cBox.x, cBox.y + 10, { steps: 8 });
+ok("Ctrl+左拖显示矩形捕网", await selectionPage.locator(".marquee").count() === 1);
+await selectionPage.screenshot({ path: "artifacts/ctrl-left-marquee-default.png" });
+await selectionPage.mouse.up({ button: "left" });
+await selectionPage.keyboard.up("Control");
+ok("捕网触及第三张卡并保留原选区", JSON.stringify(await selectedIds()) === JSON.stringify(selectionIds));
+ok("松开后捕网消失", await selectionPage.locator(".marquee").count() === 0);
+await selectionPage.mouse.click(1000, 620);
+await selectionCards[1].click();
+ok("空白清选后普通左键单选", JSON.stringify(await selectedIds()) === JSON.stringify([selectionIds[1]]));
+await selectionPage.mouse.move(820, 560);
+await selectionPage.keyboard.down("Control");
+await selectionPage.mouse.wheel(0, -180);
+await selectionPage.keyboard.up("Control");
+await selectionPage.waitForTimeout(180);
+ok("左键捕网回归使用非 100% 缩放", await selectionPage.evaluate(() => window.__state.file.board.view.zoom !== 1));
+const zoomC = await selectionCards[2].boundingBox();
+await selectionPage.keyboard.down("Control");
+await selectionPage.mouse.move(zoomC.x - 40, zoomC.y - 20);
+await selectionPage.mouse.down({ button: "left" });
+await selectionPage.mouse.move(zoomC.x + 5, zoomC.y + 5, { steps: 8 });
+await selectionPage.mouse.up({ button: "left" });
+await selectionPage.keyboard.up("Control");
+ok("缩放后捕网仍可加选", JSON.stringify(await selectedIds()) === JSON.stringify(selectionIds.slice(1)));
+await selectionPage.screenshot({ path: "artifacts/ctrl-left-marquee-zoom.png" });
+const selectionVersionAfter = await selectionPage.evaluate(() => ({
+  version: window.__state.file.board.contentVersion,
+  history: window.__state.file.history.length,
+}));
+ok("左键选择不写入文件和历史", JSON.stringify(selectionVersionAfter) === JSON.stringify(selectionVersion));
+await selectionPage.mouse.click(1000, 620);
+const rightOnlyBox = await selectionCards[2].boundingBox();
+await selectionPage.keyboard.down("Control");
+await selectionPage.mouse.click(rightOnlyBox.x + rightOnlyBox.width / 2, rightOnlyBox.y + rightOnlyBox.height / 2, { button: "right" });
+await selectionPage.keyboard.up("Control");
+ok("Ctrl+右键不再选卡", (await selectedIds()).length === 0);
+await selectionPage.close();
 const fatal = errors.filter((e) => !e.includes("favicon"));
 ok("无浏览器报错", fatal.length === 0);
 if (fatal.length) console.log(fatal.join("\n"));

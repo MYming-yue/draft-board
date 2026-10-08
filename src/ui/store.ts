@@ -4,6 +4,7 @@
 import { measureLayoutGeometry } from "./layoutGeometry";
 import { planTidyLayout } from "./layoutPlanner";
 import { useMemo, useReducer } from "react";
+import type { ExternalChanges } from "./externalChanges";
 import {
   commitStep,
   createEmptyBoard,
@@ -39,6 +40,8 @@ export interface EditorState {
   sessionId: string; // 区分新建/打开后的编辑会话，避免旧保存结果覆盖新白板状态
   editRevision: number; // 仅持久化内容变化递增；保存完成时核对快照
   replay: { active: boolean; step: number; playing: boolean };
+  fileConflict: string | null;
+  externalUpdate: ExternalChanges | null;
 }
 
 export type Action =
@@ -54,7 +57,10 @@ export type Action =
   | { type: "rename"; name: string }
   | { type: "load"; bundle: DraftBundle; handle: FileSystemFileHandle | null; fileName: string }
   | { type: "newBoard" }
-  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string }
+  | { type: "setFileConflict"; sessionId: string; message: string | null }
+  | { type: "receiveExternal"; bundle: DraftBundle; stamp: SaveStamp; changes: ExternalChanges }
+  | { type: "dismissExternal" }
+  | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string; sessionId?: string }
   | { type: "markSaving" }
   | { type: "markSaved"; stamp: SaveStamp }
   | { type: "markSaveCancelled"; stamp: SaveStamp; previous: SaveState }
@@ -91,6 +97,8 @@ export function initialEditorState(): EditorState {
     sessionId: globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
     editRevision: 0,
     replay: { active: false, step: 0, playing: false },
+    fileConflict: null,
+    externalUpdate: null,
   };
 }
 
@@ -104,6 +112,22 @@ function matchesSave(s: EditorState, stamp: SaveStamp): boolean {
 
 export function editorReducer(s: EditorState, a: Action): EditorState {
   switch (a.type) {
+    case "setFileConflict":
+      return a.sessionId === s.sessionId && s.fileConflict !== a.message ? { ...s, fileConflict: a.message } : s;
+    case "dismissExternal":
+      return { ...s, externalUpdate: null };
+    case "receiveExternal": {
+      if (!matchesSave(s, a.stamp) || s.editingId || s.replay.active || s.saveState === "saving") return s;
+      for (const url of Object.values(s.blobUrls)) URL.revokeObjectURL(url);
+      return {
+        ...s, file: { ...a.bundle.file, board: { ...a.bundle.file.board, view: s.file.board.view } },
+        blobs: a.bundle.blobs, blobUrls: makeBlobUrls(a.bundle.blobs),
+        cursor: a.bundle.file.history.length, redoStack: [],
+        selection: { nodes: a.changes.nodes, edges: [] },
+        externalUpdate: a.changes, fileConflict: null,
+        saveState: "saved", saveError: null, editRevision: s.editRevision + 1,
+      };
+    }
     case "commit": {
       if (s.replay.active) return s; // 回放只读，禁一切内容修改（§F10）
       const r = commitStep(s.file, a.label, "user" satisfies Actor, a.ops);
@@ -213,6 +237,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       return initialEditorState();
     }
     case "setHandle":
+      if (a.sessionId && a.sessionId !== s.sessionId) return s;
       return { ...s, fileHandle: a.handle, fileName: a.fileName, fileNameTracksBoardName: false };
     case "markSaving":
       return { ...s, saveState: "saving" };

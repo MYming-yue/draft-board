@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
-import { launchBrowser } from "./browser.mjs";
+import { launchBrowser, prepareFixtureOpen } from "./browser.mjs";
 import { createEmptyBoard, commitStep, parseBoard, serializeBoard } from "../dist-model/index.js";
 const port = 4192;
 const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], { stdio: "ignore" });
@@ -29,6 +29,7 @@ try {
   const button = name => page.getByRole("button", { name, exact: true });
   const tidy = async (selectedOnly = false) => { await button("布局整理").click(selectedOnly ? { modifiers: ["Shift"] } : {}); await button("整理中…").waitFor({ state: "hidden", timeout: 120000 }); };
   async function open() {
+    await prepareFixtureOpen(page);
     const [chooser] = await Promise.all([page.waitForEvent("filechooser"), button("打开").click()]);
     await chooser.setFiles({ name: "layout.draft", mimeType: "application/octet-stream", buffer: Buffer.from(serializeBoard(seeded.state, { a_layout00: pixels })) });
     await page.locator(".node-card").first().waitFor();
@@ -84,6 +85,7 @@ try {
   const compactNodes = Array.from({ length: 12 }, (_, i) => ({ id: `n_compact${i}`, type: "text", markdown: `概念 ${i + 1}`, x: 100 + (i % 4) * 200, y: 100 + Math.floor(i / 4) * 110, w: 240 }));
   const compact = commitStep(compactFile, "紧凑测试", "user", compactNodes.map(node => ({ op: "addNode", node, before: null, after: node })));
   assert.ok(compact.ok);
+  await prepareFixtureOpen(page);
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), button("打开").click()]);
   await chooser.setFiles({ name: "compact.draft", mimeType: "application/octet-stream", buffer: Buffer.from(serializeBoard(compact.state, {})) });
   await page.locator('[data-node-id="n_compact11"]').waitFor();
@@ -115,6 +117,7 @@ try {
   const relatedCollection = { id: "g_related01", name: "同一主题", shape: "rectangle", nodeIds: [relatedNodes[0].id, relatedNodes[1].id], x: 0, y: 0 };
   const relatedSeed = commitStep({ ...related, collections: [relatedCollection] }, "示例", "user", [...relatedNodes.map(node => ({ op: "addNode", node, before: null, after: node })), { op: "addEdge", edge: relatedEdge, before: null, after: relatedEdge }]);
   assert.ok(relatedSeed.ok);
+  await prepareFixtureOpen(page);
   const [relatedChooser] = await Promise.all([page.waitForEvent("filechooser"), button("打开").click()]);
   await relatedChooser.setFiles({ name: "related.draft", mimeType: "application/octet-stream", buffer: Buffer.from(serializeBoard(relatedSeed.state, {})) });
   await page.locator('[data-node-id="n_related03"]').waitFor();

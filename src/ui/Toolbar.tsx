@@ -45,7 +45,7 @@ export function Toolbar(p: ToolbarProps) {
   const { state, dispatch } = p.editor;
   const sel = state.selection;
   const single = sel.nodes.length === 1 ? state.file.nodes.find((n) => n.id === sel.nodes[0]) : null;
-  const status = saveStatusText(state.saveState, !!state.fileHandle);
+  const status = state.fileConflict && state.saveState !== "saving" ? { text: "本地内容保留 · 回写暂停", cls: "dirty" } : saveStatusText(state.saveState, !!state.fileHandle);
   const canUndo = state.cursor > 0 && !state.replay.active;
   const canRedo = state.redoStack.length > 0 && !state.replay.active;
 
@@ -73,7 +73,7 @@ export function Toolbar(p: ToolbarProps) {
       />
       <button onClick={p.onNew}>新建</button>
       <button onClick={p.onOpen}>打开</button>
-      <button onClick={p.onSave} title="Ctrl+S">保存</button>
+      <button onClick={p.onSave} disabled={!!state.fileConflict} title={state.fileConflict ? "磁盘有外部更新，请先另存本地副本" : "Ctrl+S"}>保存</button>
       <button onClick={p.onSaveAs}>另存为</button>
       <button onClick={p.onExportStrip} title="导出 history=[] 的 .draft（契约 §3-D）">只分享当前草稿</button>
       <button onClick={p.onExportPng}>导出 PNG</button>

@@ -39,18 +39,22 @@ const browser = await launchBrowser();
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 await context.addInitScript(
   ({ fileBytes, fileName }) => {
+    let diskBytes = new Uint8Array(fileBytes);
     const handle = {
       kind: "file",
       name: fileName,
       async getFile() {
-        return new File([new Uint8Array(fileBytes)], fileName, { type: "application/octet-stream" });
+        return new File([diskBytes], fileName, { type: "application/octet-stream" });
       },
       async createWritable() {
+        let pendingBytes;
         return {
           async write(data) {
             window.__pwaSavedBytes = data.byteLength;
+            pendingBytes = new Uint8Array(data instanceof Blob ? await data.arrayBuffer() : data);
           },
-          async close() {},
+          async close() { if (pendingBytes) diskBytes = pendingBytes; },
+          async abort() { pendingBytes = null; },
         };
       },
     };

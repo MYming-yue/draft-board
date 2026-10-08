@@ -7,7 +7,9 @@ import {
   serializeBoard,
   stripHistory,
   type DraftBundle,
+  type BoardFile,
 } from "../model";
+import { sameDraftAssets, sameDraftContent } from "./externalChanges";
 import type { EditorState } from "./store";
 
 declare global {
@@ -88,7 +90,7 @@ function download(bytes: Uint8Array, fileName: string) {
 /** 保存到既有 handle；无 handle 时另存（弹窗或下载兜底）。取消选择不算已保存。 */
 export async function saveDraft(
   state: Pick<EditorState, "file" | "blobs" | "fileHandle" | "fileName">,
-  opts: { forcePicker?: boolean; historyMode?: "full" | "strip" } = {},
+  opts: { forcePicker?: boolean; historyMode?: "full" | "strip"; expectedFile?: BoardFile; expectedBlobs?: Record<string, Uint8Array>; forbiddenHandle?: FileSystemFileHandle } = {},
 ): Promise<SaveResult> {
   const file = opts.historyMode === "strip" ? stripHistory(state.file) : state.file;
   const bytes = serializeBoard(file, state.blobs);
@@ -102,6 +104,9 @@ export async function saveDraft(
           suggestedName: suggested.replace(/\.draft$/, "") + ".当前草稿.draft",
           types: DRAFT_TYPES,
         });
+        if (state.fileHandle && (handle === state.fileHandle || await handle.isSameEntry(state.fileHandle))) {
+          throw new Error("分享草稿请选择另一个文件，原文件及历史需要保留。");
+        }
         const w = await handle.createWritable();
         await w.write(bytes as FileSystemWriteChunkType);
         await w.close();
@@ -125,9 +130,31 @@ export async function saveDraft(
     }
   }
   if (handle) {
+    if (opts.forbiddenHandle && (handle === opts.forbiddenHandle || await handle.isSameEntry(opts.forbiddenHandle))) {
+      throw new Error("请为本地副本选择另一个文件，原文件的外部修改需要保留。");
+    }
+    const sameHandle = state.fileHandle && (handle === state.fileHandle || (typeof handle.isSameEntry === "function" && await handle.isSameEntry(state.fileHandle)));
+    if (sameHandle && opts.expectedFile) {
+      const disk = await openDraftHandle(handle);
+      if (!sameDraftContent(disk.bundle.file, opts.expectedFile) || (opts.expectedBlobs && !sameDraftAssets(disk.bundle.blobs, opts.expectedBlobs))) {
+        throw new Error("磁盘已有外部修改，已停止覆盖；当前内容保留，请另存本地副本。");
+      }
+    }
     const w = await handle.createWritable();
-    await w.write(bytes as FileSystemWriteChunkType);
-    await w.close();
+    try {
+      await w.write(bytes as FileSystemWriteChunkType);
+      // Recheck after staging: a changed file must not be replaced on close().
+      if (sameHandle && opts.expectedFile) {
+        const disk = await openDraftHandle(handle);
+        if (!sameDraftContent(disk.bundle.file, opts.expectedFile) || (opts.expectedBlobs && !sameDraftAssets(disk.bundle.blobs, opts.expectedBlobs))) {
+          throw new Error("写入期间磁盘出现外部修改，已取消覆盖；当前内容保留。");
+        }
+      }
+      await w.close();
+    } catch (error) {
+      try { await w.abort(); } catch { /* Preserve the original save error. */ }
+      throw error;
+    }
     return { status: "saved", handle };
   }
   // 无 FS Access：下载兜底（浏览器下载目录写入由浏览器保证完整）
@@ -142,21 +169,29 @@ export async function saveDraft(
 export function useAutosave(
   state: EditorState,
   save: () => Promise<void>,
+  busy = false,
 ) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
   useEffect(() => {
-    if (state.saveState !== "dirty" || !state.fileHandle) return;
+    if (busy || state.fileConflict || state.editingId || state.saveState !== "dirty" || !state.fileHandle) return;
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      void save();
-    }, 1500);
+    let stopped = false;
+    const tick = async () => {
+      await save();
+      // A pending edge-label input can defer saving without changing the model.
+      // Keep checking until it finishes, rather than consuming the only timer.
+      const current = stateRef.current;
+      if (!stopped && current.saveState === "dirty" && !current.fileConflict && !current.editingId) timer.current = setTimeout(tick, 1500);
+    };
+    timer.current = setTimeout(tick, 1500);
     return () => {
+      stopped = true;
       if (timer.current) clearTimeout(timer.current);
     };
     // 仅在内容版本变化时重新计时
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.file.board.contentVersion, state.file.board.updatedAt, state.saveState, state.fileHandle]);
+  }, [state.file.board.contentVersion, state.file.board.updatedAt, state.saveState, state.fileHandle, state.fileConflict, state.editingId, busy]);
 }

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DraftError } from "./model";
+import { DraftError, type BoardFile } from "./model";
 import { Canvas } from "./ui/Canvas";
 import { exportBoardPng } from "./ui/exportPng";
 import { openDraft, openDraftHandle, saveDraft, useAutosave } from "./ui/persistence";
 import { ReplayBar } from "./ui/ReplayBar";
 import { useEditor } from "./ui/store";
 import { Toolbar } from "./ui/Toolbar";
+import { FileUpdates } from "./ui/FileUpdates";
+import { useFileSync } from "./ui/useFileSync";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -20,6 +22,13 @@ export default function App() {
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [layoutResult, setLayoutResult] = useState<string | null>(null);
   const [structureView, setStructureView] = useState(false);
+  const diskBaseline = useRef<BoardFile | null>(null);
+  const diskAssets = useRef<Record<string, Uint8Array>>({});
+  const saveInFlight = useRef(false);
+  const [savingIO, setSavingIO] = useState(false);
+  const currentState = useRef(state);
+  currentState.current = state;
+  useFileSync(editor, diskBaseline, diskAssets, saveInFlight, layoutBusy);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
@@ -38,34 +47,43 @@ export default function App() {
 
   const doNew = useCallback(() => {
     if (state.replay.active) dispatch({ type: "replayExit" });
-    if (state.saveState === "dirty" && !window.confirm("当前白板有未保存修改，确定新建并丢弃吗？")) return;
+    if ((state.editingId || state.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(state.saveState)) && !window.confirm("当前白板有未保存修改，确定新建并丢弃吗？")) return;
+    diskBaseline.current = null;
+    diskAssets.current = {};
     dispatch({ type: "newBoard" });
-  }, [state.replay.active, state.saveState, dispatch]);
+  }, [state.replay.active, state.saveState, state.editingId, state.fileConflict, dispatch]);
 
   const doOpen = useCallback(async () => {
+    if ((state.editingId || state.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(state.saveState)) && !window.confirm("当前白板有未保存内容，确定打开另一个文件吗？")) return;
     if (state.replay.active) dispatch({ type: "replayExit" });
+    const sessionId = state.sessionId;
     try {
       const opened = await openDraft();
-      if (!opened) return;
+      if (!opened || currentState.current.sessionId !== sessionId) return;
+      diskBaseline.current = opened.bundle.file;
+      diskAssets.current = opened.bundle.blobs;
       dispatch({ type: "load", bundle: opened.bundle, handle: opened.handle, fileName: opened.fileName });
     } catch (e) {
       reportError(e);
     }
-  }, [state.replay.active, dispatch, reportError]);
+  }, [state.replay.active, state.editingId, state.fileConflict, state.saveState, dispatch, reportError]);
 
   // 已安装 PWA 从 Windows 双击 .draft 启动时，Chromium 会把真实文件句柄放入 launchQueue。
   const openLaunchedFile = useCallback(
     async (handle: FileSystemFileHandle) => {
-      if (state.saveState === "dirty" && !window.confirm("当前白板有未保存修改，确定打开另一个文件吗？")) return;
+      if ((state.editingId || state.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(state.saveState)) && !window.confirm("当前白板有未保存修改，确定打开另一个文件吗？")) return;
       if (state.replay.active) dispatch({ type: "replayExit" });
       try {
         const opened = await openDraftHandle(handle);
+        if (currentState.current.sessionId !== state.sessionId) return;
+        diskBaseline.current = opened.bundle.file;
+        diskAssets.current = opened.bundle.blobs;
         dispatch({ type: "load", bundle: opened.bundle, handle: opened.handle, fileName: opened.fileName });
       } catch (error) {
         reportError(error);
       }
     },
-    [state.saveState, state.replay.active, dispatch, reportError],
+    [state.saveState, state.editingId, state.fileConflict, state.replay.active, dispatch, reportError],
   );
   const launchOpenRef = useRef(openLaunchedFile);
   launchOpenRef.current = openLaunchedFile;
@@ -100,38 +118,57 @@ export default function App() {
   }, [installPrompt]);
 
   const doSave = useCallback(async () => {
-    if (state.replay.active) return;
+    if (state.replay.active || saveInFlight.current || state.fileConflict || state.editingId || document.querySelector(".edge-label-input")) return;
+    saveInFlight.current = true;
+    setSavingIO(true);
     const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
     const previous = state.saveState;
     dispatch({ type: "markSaving" });
     try {
-      const result = await saveDraft(state);
+      const result = await saveDraft(state, { expectedFile: diskBaseline.current ?? undefined, expectedBlobs: diskAssets.current });
       if (result.status === "cancelled") {
         dispatch({ type: "markSaveCancelled", stamp, previous });
         return;
       }
       const handle = result.handle;
+      if (currentState.current.sessionId !== stamp.sessionId) return;
+      diskBaseline.current = state.file;
+      diskAssets.current = state.blobs;
       if (handle && handle !== state.fileHandle)
-        dispatch({ type: "setHandle", handle, fileName: handle.name });
+        dispatch({ type: "setHandle", handle, fileName: handle.name, sessionId: stamp.sessionId });
       dispatch({ type: "markSaved", stamp });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
-    }
+    } finally { saveInFlight.current = false; setSavingIO(false); }
   }, [state, dispatch]);
 
   const doSaveAs = useCallback(async () => {
+    if (saveInFlight.current || state.replay.active || state.editingId || document.querySelector(".edge-label-input")) return;
+    saveInFlight.current = true;
+    setSavingIO(true);
     const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
+    const previous = state.saveState;
+    dispatch({ type: "markSaving" });
     try {
-      const result = await saveDraft(state, { forcePicker: true });
+      const result = await saveDraft(state, { forcePicker: true, expectedFile: diskBaseline.current ?? undefined, expectedBlobs: diskAssets.current, forbiddenHandle: state.fileConflict ? state.fileHandle ?? undefined : undefined });
+      if (currentState.current.sessionId !== stamp.sessionId) return;
+      if (result.status === "cancelled") {
+        dispatch({ type: "markSaveCancelled", stamp, previous });
+        return;
+      }
       if (result.status === "saved") {
-        if (result.handle) dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle.name });
+        diskBaseline.current = state.file;
+        diskAssets.current = state.blobs;
+        dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle?.name ?? state.fileName, sessionId: stamp.sessionId });
+        dispatch({ type: "setFileConflict", sessionId: stamp.sessionId, message: null });
+        dispatch({ type: "dismissExternal" });
         dispatch({ type: "markSaved", stamp });
       }
     } catch (e) {
-      reportError(e);
-    }
-  }, [state, dispatch, reportError]);
+      dispatch({ type: "markSaveError", stamp, message: e instanceof Error ? e.message : String(e) });
+    } finally { saveInFlight.current = false; setSavingIO(false); }
+  }, [state, dispatch]);
 
   const doExportStrip = useCallback(async () => {
     try {
@@ -153,7 +190,7 @@ export default function App() {
   const saveRef = useRef(doSave);
   saveRef.current = doSave;
   const autosaveFn = useCallback(() => saveRef.current(), []);
-  useAutosave(state, autosaveFn);
+  useAutosave(state, autosaveFn, savingIO);
 
   // Ctrl+S 全局保存
   useEffect(() => {
@@ -173,7 +210,7 @@ export default function App() {
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       const current = unloadState.current;
-      if (current.editingId === null && !["dirty", "saving", "error"].includes(current.saveState)) return;
+      if (!current.fileConflict && current.editingId === null && !["dirty", "saving", "error"].includes(current.saveState)) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -222,6 +259,7 @@ export default function App() {
         onToggleStructure={() => setStructureView((v) => !v)}
         onInstall={installPrompt ? () => void doInstall() : undefined}
       />
+      <FileUpdates editor={editor} onSaveCopy={() => void doSaveAs()} />
       <Canvas editor={editor} fitNonce={fitNonce} layoutFit={layoutFit} structureView={structureView} />
       <ReplayBar editor={editor} />
     </div>

@@ -39,7 +39,7 @@ export interface OpenedDraft {
 }
 
 export type SaveResult =
-  | { status: "saved"; handle: FileSystemFileHandle | null }
+  | { status: "saved"; handle: FileSystemFileHandle | null; fileName?: string }
   | { status: "cancelled" };
 
 export async function openDraftHandle(handle: FileSystemFileHandle): Promise<OpenedDraft> {
@@ -90,11 +90,12 @@ function download(bytes: Uint8Array, fileName: string) {
 /** 保存到既有 handle；无 handle 时另存（弹窗或下载兜底）。取消选择不算已保存。 */
 export async function saveDraft(
   state: Pick<EditorState, "file" | "blobs" | "fileHandle" | "fileName">,
-  opts: { forcePicker?: boolean; historyMode?: "full" | "strip"; expectedFile?: BoardFile; expectedBlobs?: Record<string, Uint8Array>; forbiddenHandle?: FileSystemFileHandle } = {},
+  opts: { forcePicker?: boolean; copy?: boolean; historyMode?: "full" | "strip"; expectedFile?: BoardFile; expectedBlobs?: Record<string, Uint8Array>; forbiddenHandle?: FileSystemFileHandle } = {},
 ): Promise<SaveResult> {
   const file = opts.historyMode === "strip" ? stripHistory(state.file) : state.file;
   const bytes = serializeBoard(file, state.blobs);
-  const suggested = state.fileName || `${state.file.board.name}.draft`;
+  const originalName = state.fileName || `${state.file.board.name}.draft`;
+  const suggested = opts.copy ? `${originalName.replace(/\.draft$/i, "")}-副本.draft` : originalName;
 
   if (opts.historyMode === "strip") {
     // 脱历史导出永不远程覆盖原文件：另存/下载
@@ -120,7 +121,7 @@ export async function saveDraft(
     return { status: "saved", handle: null };
   }
 
-  let handle = opts.forcePicker ? null : state.fileHandle;
+  let handle = opts.forcePicker || opts.copy ? null : state.fileHandle;
   if (!handle && window.showSaveFilePicker) {
     try {
       handle = await window.showSaveFilePicker({ suggestedName: suggested, types: DRAFT_TYPES });
@@ -130,7 +131,8 @@ export async function saveDraft(
     }
   }
   if (handle) {
-    if (opts.forbiddenHandle && (handle === opts.forbiddenHandle || await handle.isSameEntry(opts.forbiddenHandle))) {
+    const forbidden = opts.forbiddenHandle ?? (opts.copy ? state.fileHandle ?? undefined : undefined);
+    if (forbidden && (handle === forbidden || await handle.isSameEntry(forbidden))) {
       throw new Error("请为本地副本选择另一个文件，原文件的外部修改需要保留。");
     }
     const sameHandle = state.fileHandle && (handle === state.fileHandle || (typeof handle.isSameEntry === "function" && await handle.isSameEntry(state.fileHandle)));
@@ -159,7 +161,7 @@ export async function saveDraft(
   }
   // 无 FS Access：下载兜底（浏览器下载目录写入由浏览器保证完整）
   download(bytes, suggested);
-  return { status: "saved", handle: null };
+  return { status: "saved", handle: null, fileName: suggested };
 }
 
 /**

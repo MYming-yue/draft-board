@@ -151,7 +151,7 @@ export default function App() {
     const previous = state.saveState;
     dispatch({ type: "markSaving" });
     try {
-      const result = await saveDraft(state, { forcePicker: true, expectedFile: diskBaseline.current ?? undefined, expectedBlobs: diskAssets.current, forbiddenHandle: state.fileConflict ? state.fileHandle ?? undefined : undefined });
+      const result = await saveDraft(state, { forcePicker: true, copy: !!state.fileConflict, expectedFile: diskBaseline.current ?? undefined, expectedBlobs: diskAssets.current, forbiddenHandle: state.fileConflict ? state.fileHandle ?? undefined : undefined });
       if (currentState.current.sessionId !== stamp.sessionId) return;
       if (result.status === "cancelled") {
         dispatch({ type: "markSaveCancelled", stamp, previous });
@@ -160,7 +160,7 @@ export default function App() {
       if (result.status === "saved") {
         diskBaseline.current = state.file;
         diskAssets.current = state.blobs;
-        dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle?.name ?? state.fileName, sessionId: stamp.sessionId });
+        dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle?.name ?? result.fileName ?? state.fileName, sessionId: stamp.sessionId });
         dispatch({ type: "setFileConflict", sessionId: stamp.sessionId, message: null });
         dispatch({ type: "dismissExternal" });
         dispatch({ type: "markSaved", stamp });

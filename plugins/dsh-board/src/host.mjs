@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BoardStore } from './store.mjs';
+import { BoardContext, BOARD_INSTRUCTIONS } from './context.mjs';
 
 export const name = 'dsh-board';
 export const inject = ['connection', 'tools', 'systemPrompt'];
@@ -17,7 +18,34 @@ export async function apply(ctx, config = {}) {
   if (!config.dataDir && !home) throw new Error('dsh-board requires DSH_HOME or dataDir');
   const store = new BoardStore(config.dataDir ?? join(home, 'dsh-board'));
   await store.ready;
+  const boardContext = new BoardContext(join(store.directory, 'plugin-state.json'));
+  await boardContext.ready;
+  const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const register = route => ctx.effect(() => ctx.connection.fetch.register(route));
+  const options = () => ({ ...boardContext.options, version, draftName: store.bundle.file.board.name, fileName: store.fileName });
+  register({ path: '/api/dsh-board/options', methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async request => {
+      try {
+        if (request.method === 'POST') {
+          const previous = boardContext.options;
+          await boardContext.configure(await request.json());
+          if (previous.enabled !== boardContext.options.enabled) reconcile();
+        }
+        return json(options());
+      } catch (error) { return json({ error: { message: error.message } }, 400); }
+    } });
+  register({ path: '/api/dsh-board/association', methods: ['POST', 'DELETE'], requestBody: 'buffered',
+    fetch: async request => {
+      try {
+        const value = await request.json();
+        if (request.method === 'DELETE') await boardContext.discard(value.sessionId, value.requestId);
+        else await boardContext.stage(value.sessionId, value.requestId, boardContext.options.enabled && boardContext.options.associateSelection ? value.selection : null);
+        return json({ ok: true });
+      } catch (error) { return json({ error: { message: error.message } }, 400); }
+    } });
+  ctx.on('agent/inbox/claimed', ({ agent, message }) => {
+    if (boardContext.claim(agent.id, message)) void boardContext.save().catch(() => ctx.logger.warn('DSH-board association persistence failed'));
+  });
   register({ path: '/api/dsh-board/state', methods: ['GET'], requestBody: 'buffered',
     fetch: async request => json(await store.snapshot(new URL(request.url).searchParams.get('revision'))) });
   register({ path: '/api/dsh-board/sync', methods: ['POST'], requestBody: 'buffered',
@@ -45,15 +73,26 @@ export async function apply(ctx, config = {}) {
     }
   }
   await mountFiles();
-  ctx.tools.register({ name: 'draft_board_read',
-    description: 'Read the current shared whiteboard before maintaining it. Returns card identities, content, relations and contentVersion. User message card links identify objects, not supplied card contents.',
+  let releases = [];
+  function reconcile() {
+    for (const release of releases) release();
+    releases = [];
+    if (!boardContext.options.enabled) return;
+    const requireEnabled = () => { if (!boardContext.options.enabled) throw new Error('DSH-board is disabled'); };
+    releases.push(ctx.tools.register({ name: 'draft_board_read',
+    description: 'Read the current shared whiteboard before maintaining it. Returns card identities, content, relations and contentVersion. Runtime card associations identify objects, not supplied card contents.',
     parameters: { type: 'object', properties: {}, additionalProperties: false }, output,
     isConcurrencySafe: () => true,
-    execute: async () => jsonSafe(await store.read()) });
-  ctx.tools.register({ name: 'draft_board_apply',
+    execute: async () => { requireEnabled(); return jsonSafe(await store.read()); } }));
+    releases.push(ctx.tools.register({ name: 'draft_board_apply',
     description: 'Actively maintain the current shared whiteboard with one validated, undoable Draft Board batch. Read first, then send batchVersion=1.0, boardId, baseContentVersion, actor=agent, label and ops. Identity/version conflicts require reading again.',
     parameters: { type: 'object', properties: { batch: { type: 'string', description: 'JSON-encoded AgentBatch. Existing Draft Board operations only.' } }, required: ['batch'], additionalProperties: false }, output,
-    execute: async (args, exec) => jsonSafe(await store.apply(JSON.parse(args.batch), exec.signal)) });
-  ctx.systemPrompt.section({ name: 'dsh-board', order: ctx.systemPrompt.getSectionOrder('TOOL_READ') + 0.1,
-    text: 'You share a persistent editable whiteboard with the user. When useful for learning, product analysis, or project work, proactively maintain it with draft_board_read and draft_board_apply, alongside your explanation. Read before edits, preserve useful existing cards, and group related operations in one undoable batch. Card links in user messages are object references; read their content when needed. New chat sessions continue using the current board until the user changes it. Do not use shell or file-edit tools to bypass the whiteboard batch/version rules.' });
+    execute: async (args, exec) => { requireEnabled(); return jsonSafe(await store.apply(JSON.parse(args.batch), exec.signal)); } }));
+    releases.push(ctx.systemPrompt.section({ name: 'dsh-board', order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX') + 100,
+      text: BOARD_INSTRUCTIONS }));
+    releases.push(ctx.systemPrompt.context({ name: 'dsh-board', order: 1_000_000,
+      text: assembly => assembly.agent ? boardContext.render(assembly.agent.id, store.bundle.file.board.id) : '' }));
+  }
+  reconcile();
+  ctx.effect(() => () => { for (const release of releases) release(); });
 }

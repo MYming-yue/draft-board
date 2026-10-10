@@ -14,3 +14,13 @@
 .dsh-board-resizing .dsh-board-frame { pointer-events:none; }
 .dsh-board-resizing { user-select:none; }
 @media(max-width:900px) { .dsh-board-sync { display:none; } }
+.dsh-board-disabled { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr); }
+.dsh-board-disabled [data-dsh-board-chat] { grid-column:1; grid-row:1; display:flex !important; }
+.dsh-board-disabled > [data-dsh-board-decoration] { grid-column:1; grid-row:1; display:block !important; }
+.dsh-board-disabled .dsh-board-strip, .dsh-board-disabled .dsh-board-frame, .dsh-board-disabled .dsh-board-divider { display:none !important; }
+.dsh-board-settings { padding:24px; max-width:760px; line-height:1.6; color:inherit; }
+.dsh-board-settings h2 { margin:0 0 16px; font-size:20px; }
+.dsh-board-settings label { display:flex; align-items:center; gap:10px; font-weight:600; margin-top:24px; }
+.dsh-board-settings input { width:18px; height:18px; accent-color:#5876e9; }
+.dsh-board-settings p { margin:8px 0 16px; font-size:14px; }
+.dsh-board-settings [role=alert] { color:#c63a3a; }

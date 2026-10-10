@@ -1,6 +1,6 @@
 {
   "name": "dsh-board",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Local Draft Board workspace inside DeepSeek Harness",

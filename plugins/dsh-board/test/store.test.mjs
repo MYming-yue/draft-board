@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { BoardStore } from '../src/store.mjs';
 import { createEmptyBoard, serializeBoard } from '../../../dist-model/index.js';
-import { cardReferences } from '../src/references.mjs';
+import { normalizeAssociation } from '../src/context.mjs';
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-board-test-'));
@@ -57,11 +57,11 @@ test('explicit board change preserves previous file; implicit identity change is
   assert.equal((await store.read()).board.name, '另一任务');
   assert.equal((await readdir(join(directory, 'boards'))).filter(name => name.endsWith('.draft')).length, 2);
 });
-test('message association contains stable identities and escaped short titles, not card body', () => {
+test('message association contains stable identities and short titles, not card body', () => {
   const cards = [{ id: 'n_card001', title: 'A [概念]', markdown: '不应自动附上全文' }];
-  const refs = cardReferences('b_board01', cards);
-  assert.match(refs, /dsh-board:\/\/b_board01\/n_card001/);
-  assert.ok(refs.includes('A \\[概念\\]'));
-  assert.ok(!refs.includes('不应自动附上全文'));
-  assert.equal(cardReferences('b_board01', []), '');
+  const refs = normalizeAssociation({ boardId: 'b_board01', cards });
+  assert.equal(refs.cards[0].id, 'n_card001');
+  assert.equal(refs.cards[0].title, 'A [概念]');
+  assert.ok(!JSON.stringify(refs).includes('不应自动附上全文'));
+  assert.deepEqual(normalizeAssociation(null), { boardId: null, cards: [] });
 });

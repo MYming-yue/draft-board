@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { cardReferences } from './references.mjs';
+import { associatedSession } from './submission.mjs';
 import styles from './client.css';
 
 export const inject = ['slots', 'conversation'];
@@ -8,6 +8,29 @@ export function apply(ctx) {
   const style = document.createElement('style'); style.textContent = styles;
   document.head.append(style); ctx.effect(() => () => style.remove());
   const bridge = { frame: null, selection: null, requests: new Map() };
+  let options = { enabled: true, associateSelection: true };
+  const optionListeners = new Set();
+  const publishOptions = next => { options = next; for (const listener of optionListeners) listener(next); };
+  async function api(path, body, method = 'POST', signal) {
+    const response = await fetch('/api/dsh-board/' + path, { method, signal, cache: 'no-store',
+      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error?.message ?? 'DSH-board 请求失败');
+    return result;
+  }
+  let disposed = false;
+  let timer;
+  async function refreshOptions() {
+    try { const next = await api('options', null, 'GET'); if (!disposed) publishOptions(next); }
+    catch { /* Keep the last known preferences during a temporary disconnect. */ }
+    finally { if (!disposed) timer = setTimeout(refreshOptions, 1500); }
+  }
+  void refreshOptions(); ctx.effect(() => () => { disposed = true; clearTimeout(timer); });
+  function useOptions() {
+    const [value, setValue] = useState(options);
+    useEffect(() => { optionListeners.add(setValue); setValue(options); return () => optionListeners.delete(setValue); }, []);
+    return value;
+  }
   const service = ctx.conversation;
   const originalSend = service.sendSession;
   if (typeof originalSend !== 'function') throw new Error('DSH-board: unsupported Conversation submission interface');
@@ -21,9 +44,14 @@ export function apply(ctx) {
     });
   }
   async function sendWithReferences(session, text, ...args) {
+    if (!options.enabled) return originalSend.call(this, session, text, ...args);
     const selection = bridge.selection;
     await flush();
-    return originalSend.call(this, session, text + cardReferences(selection?.boardId, selection?.cards), ...args);
+    const bound = associatedSession(session, options.associateSelection ? selection : null, {
+      stage: (sessionId, requestId, selection, signal) => api('association', { sessionId, requestId, selection }, 'POST', signal),
+      discard: (sessionId, requestId) => api('association', { sessionId, requestId }, 'DELETE'),
+    });
+    return originalSend.call(this, bound, text, ...args);
   }
   service.sendSession = sendWithReferences;
   ctx.effect(() => () => {
@@ -33,6 +61,7 @@ export function apply(ctx) {
   });
 
   function BoardPanel(props) {
+    const preferences = useOptions();
     const activePanel = props.usePanelInfo(info => info.activePanelId);
     const frame = useRef(null);
     const [target, setTarget] = useState(null);
@@ -82,7 +111,7 @@ export function apply(ctx) {
       setTarget(attachment);
       return () => {
         observer.disconnect();
-        center.classList.remove('dsh-board-center', 'dsh-board-resizing');
+        center.classList.remove('dsh-board-center', 'dsh-board-resizing', 'dsh-board-disabled');
         center.style.removeProperty('--dsh-board-chat-width');
         attachment.native?.removeAttribute('data-dsh-board-chat'); attachment.native?.removeAttribute('data-dsh-board-collapsed');
         for (const decoration of attachment.decorations) {
@@ -100,6 +129,7 @@ export function apply(ctx) {
       return () => observer.disconnect();
     }, [target, open, width]);
     useEffect(() => { target?.center.classList.toggle('dsh-board-resizing', resizing); }, [target, resizing]);
+    useEffect(() => { target?.center.classList.toggle('dsh-board-disabled', !preferences.enabled); }, [target, preferences.enabled]);
     useEffect(() => {
       if (!target) return;
       bridge.frame = frame.current;
@@ -123,7 +153,7 @@ export function apply(ctx) {
     if (!target) return null;
     return createPortal(<>
       <header className="dsh-board-strip"><span>共同白板</span>
-        <span className="dsh-board-association">{selection?.cards?.length ? '关联：' + selection.cards.map(card => card.title || card.id).join('、') : '未关联卡片'}</span>
+        <span className="dsh-board-association">{!preferences.associateSelection ? '卡片关联已关闭' : selection?.cards?.length ? '关联：' + selection.cards.map(card => card.title || card.id).join('、') : '未关联卡片'}</span>
         <span className="dsh-board-sync">{selection?.status ?? '连接白板…'}</span>
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '收起对话' : '展开对话'}</button>
       </header>
@@ -136,5 +166,30 @@ export function apply(ctx) {
         onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); resize(width + (event.key === 'ArrowLeft' ? 24 : -24)); } }} />
     </>, target.mount);
   }
+  function BoardSettings() {
+    const preferences = useOptions();
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+    async function change(field, value) {
+      setSaving(true); setError(null);
+      try {
+        if (field === 'enabled' && !value) await flush();
+        publishOptions(await api('options', { [field]: value }));
+      } catch (cause) { setError(cause.message); }
+      finally { setSaving(false); }
+    }
+    return <section className="dsh-board-settings">
+      <h2>DSH-board 白板</h2>
+      <p>版本 {preferences.version ?? '…'} · 当前草稿：{preferences.draftName ?? '…'}</p>
+      <label><input type="checkbox" checked={preferences.enabled} disabled={saving} onChange={e => void change('enabled', e.target.checked)} />启用共同白板</label>
+      <p>关闭后恢复完整聊天界面，暂停白板工具；草稿保留，再次启用继续维护。</p>
+      <label><input type="checkbox" checked={preferences.associateSelection} disabled={saving || !preferences.enabled} onChange={e => void change('associateSelection', e.target.checked)} />发送时关联选中的卡片</label>
+      <p>只关联身份和短标题，不附上正文。信息放入本轮上下文，不显示在你的回复里。</p>
+      <p>白板使用说明保持固定，关联快照在上下文末尾按变化更新。</p>
+      {error && <p role="alert">{error}</p>}
+      {saving && <p role="status">正在保存…</p>}
+    </section>;
+  }
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'dsh-board' }, BoardPanel));
+  ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'dsh-board', order: 80, label: 'DSH-board 白板' }, BoardSettings));
 }

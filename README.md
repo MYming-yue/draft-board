@@ -94,6 +94,8 @@ node scripts/agent-batch.mjs apply examples/demo.draft examples/batch-demo.json
 
 ## 架构与贡献
 
+希望在 DSH 对话旁共同维护白板，可以使用独立插件项目 [DSH-board](https://github.com/MYming-yue/dsh-board)。插件的构建、安装、宿主适配和发布由该仓库维护；本仓库继续维护白板界面、文件格式、模型及嵌入同步接口。
+
 项目使用 **React + TypeScript + Vite**。纯 TypeScript 模型负责文件、操作和历史；React 界面负责交互；浏览器和 CLI 共用同一个模型内核。
 
 欢迎提交 bug、交互改进和 PR。请先阅读 [AGENTS.md](AGENTS.md)：其中包含目录架构、数据不变式、规格维护要求及提交前检查。无论人工还是 Agent 编写的代码，都适用同一套验证要求。

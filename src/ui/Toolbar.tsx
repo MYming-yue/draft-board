@@ -1,5 +1,6 @@
 import { ACCENTS, type Accent } from "../model";
 import type { EditorApi } from "./store";
+import { HistoryIcon } from "./HistoryIcon";
 
 interface ToolbarProps {
   editor: EditorApi;
@@ -45,7 +46,7 @@ export function Toolbar(p: ToolbarProps) {
   const { state, dispatch } = p.editor;
   const sel = state.selection;
   const single = sel.nodes.length === 1 ? state.file.nodes.find((n) => n.id === sel.nodes[0]) : null;
-  const status = saveStatusText(state.saveState, !!state.fileHandle);
+  const status = state.fileConflict && state.saveState !== "saving" ? { text: "本地内容保留 · 回写暂停", cls: "dirty" } : saveStatusText(state.saveState, !!state.fileHandle);
   const canUndo = state.cursor > 0 && !state.replay.active;
   const canRedo = state.redoStack.length > 0 && !state.replay.active;
 
@@ -73,17 +74,21 @@ export function Toolbar(p: ToolbarProps) {
       />
       <button onClick={p.onNew}>新建</button>
       <button onClick={p.onOpen}>打开</button>
-      <button onClick={p.onSave} title="Ctrl+S">保存</button>
+      <button onClick={p.onSave} disabled={!!state.fileConflict} title={state.fileConflict ? "磁盘有外部更新，请先另存本地副本" : "Ctrl+S"}>保存</button>
       <button onClick={p.onSaveAs}>另存为</button>
       <button onClick={p.onExportStrip} title="导出 history=[] 的 .draft（契约 §3-D）">只分享当前草稿</button>
       <button onClick={p.onExportPng}>导出 PNG</button>
       <span className="sep" />
-      <button disabled={!canUndo} onClick={() => dispatch({ type: "undo" })} title="Ctrl+Z">
-        撤销
-      </button>
-      <button disabled={!canRedo} onClick={() => dispatch({ type: "redo" })} title="Ctrl+Shift+Z">
-        重做
-      </button>
+      <span className="history-controls" role="group" aria-label="白板历史操作">
+        <button className="history-button" type="button" aria-label="撤销" disabled={!canUndo}
+          onClick={() => dispatch({ type: "undo" })} title="撤销（Ctrl+Z）">
+          <HistoryIcon action="undo" />
+        </button>
+        <button className="history-button" type="button" aria-label="重做" disabled={!canRedo}
+          onClick={() => dispatch({ type: "redo" })} title="重做（Ctrl+Y / Ctrl+Shift+Z）">
+          <HistoryIcon action="redo" />
+        </button>
+      </span>
       <button onClick={(event) => p.onLayout(event.shiftKey)} disabled={p.layoutBusy || state.replay.active || !!state.editingId} aria-busy={p.layoutBusy} title="整理全板并适应视图；按住 Shift 点击时只整理选中卡片及其后代">
         {p.layoutBusy ? "整理中…" : "布局整理"}
       </button>

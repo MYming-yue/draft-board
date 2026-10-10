@@ -270,7 +270,7 @@ export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasPro
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.tagName === "TEXTAREA" || t.tagName === "INPUT") return;
+      if (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.closest(".file-updates")) return;
       if (e.code === "Space") {
         spaceRef.current = true;
         setSpaceDown(true);
@@ -692,6 +692,7 @@ export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasPro
       }
       if (e.isComposing) return; // 中文输入法选字优先
       const t = e.target as HTMLElement | null;
+      if (t?.closest(".file-updates")) return;
       if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
     if (collectionUI.handleKey(e)) return;
     const sel = state.selection;
@@ -980,6 +981,7 @@ export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasPro
             key={n.id}
             node={n}
             selected={state.selection.nodes.includes(n.id)}
+            externalChanged={!state.replay.active && !!state.externalUpdate?.nodes.includes(n.id)}
             front={frontNodeId === n.id}
             editing={state.editingId === n.id}
             blobUrl={n.assetId ? state.blobUrls[n.assetId] : undefined}

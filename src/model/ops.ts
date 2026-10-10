@@ -93,7 +93,7 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
         if (node.type === "image" && !state.assets.some((a) => a.id === node.assetId))
           return fail(err("E_UNKNOWN_ASSET", `assetId 无对应 assets 条目：${node.assetId}`, i, at("node.assetId")));
         state.nodes.push(node);
-        normalized.push({ op: "addNode", node, before: null, after: structuredClone(node) });
+        normalized.push({ op: "addNode", node: structuredClone(node), before: null, after: structuredClone(node) });
         break;
       }
       case "removeNode": {
@@ -197,7 +197,7 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
             return fail(err("E_PARENT_CYCLE", `parentChild 成环：${edge.from}→${edge.to}`, i, at("edge.from")));
         }
         state.edges.push(edge);
-        normalized.push({ op: "addEdge", edge, before: null, after: structuredClone(edge) });
+        normalized.push({ op: "addEdge", edge: structuredClone(edge), before: null, after: structuredClone(edge) });
         break;
       }
       case "removeEdge": {

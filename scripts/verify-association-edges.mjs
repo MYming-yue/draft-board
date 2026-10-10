@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFileSync, mkdirSync } from "node:fs";
-import { launchBrowser } from "./browser.mjs";
+import { launchBrowser, prepareFixtureOpen } from "./browser.mjs";
 import { createEmptyBoard, serializeBoard, parseBoard } from "../dist-model/index.js";
 const port = 4190;
 const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], { stdio: "ignore" });
@@ -70,6 +70,7 @@ try {
       { id: "n_nodebb", type: "text", markdown: "纵向连接不再拐弯", x: 160, y: 280, w: 400 },
     ];
     file.edges = [{ id: "e_vertical", kind: "association", from: "n_nodebb", to: "n_nodeaa", directed: true }];
+    await prepareFixtureOpen(page);
     const [verticalChooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "打开", exact: true }).click()]);
     await verticalChooser.setFiles({ name: "vertical.draft", mimeType: "application/octet-stream", buffer: Buffer.from(serializeBoard(file, {})) });
     await page.locator('[data-edge-id="e_vertical"]').waitFor({ state: "attached" });

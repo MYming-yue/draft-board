@@ -82,6 +82,35 @@ body,
   opacity: 0.4;
   cursor: default;
 }
+.history-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.toolbar .history-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  border-color: transparent;
+  flex-shrink: 0;
+}
+.history-button svg {
+  display: block;
+  flex-shrink: 0;
+}
+.history-button:focus-visible {
+  outline: 2px solid var(--selection);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .toolbar .history-button {
+    width: 44px;
+    height: 44px;
+  }
+}
 .sep {
   width: 1px;
   height: 20px;

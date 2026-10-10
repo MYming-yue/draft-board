@@ -58,7 +58,7 @@ export type Action =
   | { type: "load"; bundle: DraftBundle; handle: FileSystemFileHandle | null; fileName: string }
   | { type: "newBoard" }
   | { type: "setFileConflict"; sessionId: string; message: string | null }
-  | { type: "receiveExternal"; bundle: DraftBundle; stamp: SaveStamp; changes: ExternalChanges }
+  | { type: "receiveExternal"; bundle: DraftBundle; stamp: SaveStamp; changes: ExternalChanges; pendingFileSave?: boolean }
   | { type: "dismissExternal" }
   | { type: "setHandle"; handle: FileSystemFileHandle | null; fileName: string; stamp: SaveStamp }
   | { type: "markSaving" }
@@ -125,7 +125,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         cursor: a.bundle.file.history.length, redoStack: [],
         selection: { nodes: a.changes.nodes, edges: [] },
         externalUpdate: a.changes, fileConflict: null,
-        saveState: "saved", saveError: null, editRevision: s.editRevision + 1,
+        saveState: a.pendingFileSave ? "dirty" : "saved", saveError: null, editRevision: s.editRevision + 1,
       };
     }
     case "commit": {

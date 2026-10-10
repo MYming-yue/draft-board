@@ -8,6 +8,7 @@ import { useEditor } from "./ui/store";
 import { Toolbar } from "./ui/Toolbar";
 import { FileUpdates } from "./ui/FileUpdates";
 import { useFileSync } from "./ui/useFileSync";
+import { useDshBoard } from "./ui/useDshBoard";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -29,6 +30,7 @@ export default function App() {
   const currentState = useRef(state);
   currentState.current = state;
   useFileSync(editor, diskBaseline, diskAssets, saveInFlight, layoutBusy);
+  const dshBoard = useDshBoard(editor, layoutBusy);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
@@ -242,6 +244,8 @@ export default function App() {
     (window as unknown as { __state?: unknown }).__state = state;
   }, [state]);
 
+  if (dshBoard.loading) return <div className="app"><div className="file-updates" role="status">{dshBoard.error ?? "正在连接 DSH 共同白板…"}</div></div>;
+
   return (
     <div className="app">
       <Toolbar
@@ -261,6 +265,7 @@ export default function App() {
         onInstall={installPrompt ? () => void doInstall() : undefined}
       />
       <FileUpdates editor={editor} onSaveCopy={() => void doSaveAs()} />
+      {dshBoard.error && <div className="file-updates conflict" role="alert">DSH 同步：{dshBoard.error}</div>}
       <Canvas editor={editor} fitNonce={fitNonce} layoutFit={layoutFit} structureView={structureView} />
       <ReplayBar editor={editor} />
     </div>

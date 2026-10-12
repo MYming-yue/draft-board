@@ -13,3 +13,6 @@ export * from "./file";
 export * from "./association";
 
 export * from "./collections";
+
+export * from "./edgeRouting";
+export * from "./layoutChecks";

@@ -145,7 +145,10 @@ export function layoutBranchOps(state: BoardFile, rootIds: string[], geometry: L
     };
     const score = (r: ReturnType<typeof packing>) => {
       const raggedness = r.rowWidths.reduce((sum, width) => sum + ((r.w - width) / r.w) ** 2, 0) / r.rowWidths.length;
-      return Math.abs(Math.log((r.w / r.h) / aspect)) + 0.06 * (r.w * r.h / area) + 1.5 * raggedness;
+      // Collection blocks have heterogeneous sizes: their outline matters more
+      // than matching row widths. Ordinary card grids retain balanced rows.
+      const aspectWeight = state.collections?.some(c => c.nodeIds.length) ? 3 : 1;
+      return aspectWeight * Math.abs(Math.log((r.w / r.h) / aspect)) + 0.06 * (r.w * r.h / area) + 1.5 * raggedness;
     };
     const rowWidth = [...widths].reduce((best, candidate) => score(packing(candidate)) < score(packing(best)) ? candidate : best);
     let x = 0, y = 0, rowH = 0;

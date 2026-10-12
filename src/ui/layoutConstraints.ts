@@ -1,74 +1,8 @@
-import { collectionBounds, visibleEdges, type BoardFile, type LayoutGeometry, type Op } from "../model";
-import { edgeGeometry } from "./EdgeLayer";
+import { collectionBounds, type BoardFile, type LayoutGeometry, type Op } from "../model";
+import { layoutConflicts, type LayoutConflict } from "../model/layoutChecks";
+export { layoutConflicts } from "../model/layoutChecks";
+export type { LayoutConflict } from "../model/layoutChecks";
 
-type Rect = { x: number; y: number; w: number; h: number };
-type Point = { x: number; y: number };
-export interface LayoutConflict { kind: "card" | "edge" | "collection"; nodeId: string; otherIds: string[] }
-const MARGIN = 10;
-function segmentTouchesRect(a: Point, b: Point, r: Rect): boolean {
-  // Liang–Barsky 裁剪，覆盖采样点之间的细卡片。
-  let lo = 0, hi = 1;
-  const dx = b.x - a.x, dy = b.y - a.y;
-  for (const [p, q] of [[-dx, a.x - r.x], [dx, r.x + r.w - a.x], [-dy, a.y - r.y], [dy, r.y + r.h - a.y]]) {
-    if (Math.abs(p) < 1e-9) { if (q < 0) return false; continue; }
-    const t = q / p;
-    if (p < 0) lo = Math.max(lo, t); else hi = Math.min(hi, t);
-    if (lo > hi) return false;
-  }
-  return true;
-}
-function curvePoints(path: string): Point[] {
-  const numbers = [...path.matchAll(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)].map(m => Number(m[0]));
-  if (numbers.length !== 6 && numbers.length !== 8) return [];
-  const [x0, y0] = numbers, x1 = numbers.at(-2)!, y1 = numbers.at(-1)!;
-  return Array.from({ length: 25 }, (_, i) => {
-    const t = i / 24, u = 1 - t;
-    if (numbers.length === 6) return { x: u*u*x0 + 2*u*t*numbers[2] + t*t*x1, y: u*u*y0 + 2*u*t*numbers[3] + t*t*y1 };
-    return { x: u*u*u*x0 + 3*u*u*t*numbers[2] + 3*u*t*t*numbers[4] + t*t*t*x1,
-      y: u*u*u*y0 + 3*u*u*t*numbers[3] + 3*u*t*t*numbers[5] + t*t*t*y1 };
-  });
-}
-function touchesCollection(r: Rect, c: Rect, shape: string): boolean {
-  if (shape === "rectangle") return r.x < c.x + c.w + MARGIN && r.x + r.w > c.x - MARGIN && r.y < c.y + c.h + MARGIN && r.y + r.h > c.y - MARGIN;
-  const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
-  const nearX = Math.max(r.x, Math.min(cx, r.x + r.w));
-  const nearY = Math.max(r.y, Math.min(cy, r.y + r.h));
-  return ((nearX - cx) / (c.w / 2 + MARGIN)) ** 2 + ((nearY - cy) / (c.h / 2 + MARGIN)) ** 2 <= 1;
-}
-export function layoutConflicts(file: BoardFile, geometry: LayoutGeometry): LayoutConflict[] {
-  const rects = new Map(file.nodes.map(n => [n.id, { x: n.x, y: n.y, w: geometry[n.id]?.w ?? n.w, h: geometry[n.id]?.h ?? n.h ?? 120 }]));
-  const out: LayoutConflict[] = [];
-  for (let i = 0; i < file.nodes.length; i++) for (let j = i + 1; j < file.nodes.length; j++) {
-    const a = file.nodes[i], b = file.nodes[j], x = rects.get(a.id)!, y = rects.get(b.id)!;
-    if (x.x < y.x + y.w + MARGIN && x.x + x.w + MARGIN > y.x && x.y < y.y + y.h + MARGIN && x.y + x.h + MARGIN > y.y)
-      out.push({ kind: "card", nodeId: a.id, otherIds: [b.id] });
-  }
-  const heights = Object.fromEntries(Object.entries(geometry).map(([id, v]) => [id, v.h]));
-  const widths = Object.fromEntries(Object.entries(geometry).map(([id, v]) => [id, v.w]));
-  const shownEdges = visibleEdges(file.edges);
-  for (const edge of shownEdges) {
-    const path = edgeGeometry(edge, file.nodes, heights, widths, shownEdges)?.d;
-    if (!path) continue;
-    const points = curvePoints(path);
-    if (!points.length) continue;
-    for (const n of file.nodes) {
-      if (n.id === edge.from || n.id === edge.to) continue;
-      const raw = rects.get(n.id)!;
-      const r = { x: raw.x - MARGIN, y: raw.y - MARGIN, w: raw.w + 2*MARGIN, h: raw.h + 2*MARGIN };
-      if (points.slice(1).some((p, i) => segmentTouchesRect(points[i], p, r)))
-        out.push({ kind: "edge", nodeId: n.id, otherIds: [edge.from, edge.to] });
-    }
-  }
-  for (const collection of file.collections ?? []) {
-    const bounds = collectionBounds(collection, file.nodes, geometry);
-    for (const n of file.nodes) {
-      if (collection.nodeIds.includes(n.id)) continue;
-      if (touchesCollection(rects.get(n.id)!, bounds, collection.shape))
-        out.push({ kind: "collection", nodeId: n.id, otherIds: collection.nodeIds });
-    }
-  }
-  return out;
-}
 function outline(file: BoardFile, geometry: LayoutGeometry): { w: number; h: number } {
   const rects = file.nodes.map(n => ({ x: n.x, y: n.y, w: geometry[n.id]?.w ?? n.w, h: geometry[n.id]?.h ?? n.h ?? 120 }));
   rects.push(...(file.collections ?? []).map(c => collectionBounds(c, file.nodes, geometry)));

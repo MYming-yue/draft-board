@@ -13,6 +13,8 @@ interface ToolbarProps {
   onFit: () => void;
   onLayout: (selectedOnly: boolean) => void;
   layoutBusy: boolean;
+  aiLayout?: boolean;
+  onCancelLayout?: () => void;
   layoutResult: string | null;
   structureView: boolean;
   onToggleStructure: () => void;
@@ -90,8 +92,9 @@ export function Toolbar(p: ToolbarProps) {
         </button>
       </span>
       <button onClick={(event) => p.onLayout(event.shiftKey)} disabled={p.layoutBusy || state.replay.active || !!state.editingId} aria-busy={p.layoutBusy} title="整理全板并适应视图；按住 Shift 点击时只整理选中卡片及其后代">
-        {p.layoutBusy ? "整理中…" : "布局整理"}
+        {p.layoutBusy ? "整理中…" : p.aiLayout ? "AI 布局整理" : "布局整理"}
       </button>
+      {p.onCancelLayout && <button onClick={p.onCancelLayout} title="取消布局提交；停止模型生成请使用 DSH 原生停止按钮">取消整理</button>}
       {p.layoutResult && <span className="layout-result" role="status">{p.layoutResult}</span>}
       <button onClick={p.onFit} title="回到全部内容可见">适应视图</button>
       <button aria-pressed={p.structureView} onClick={p.onToggleStructure} title="只切换备注显示，不修改卡片内容或位置">

@@ -31,6 +31,17 @@ export default function App() {
   currentState.current = state;
   useFileSync(editor, diskBaseline, diskAssets, saveInFlight, layoutBusy);
   const dshBoard = useDshBoard(editor, layoutBusy);
+  const handledLayout=useRef<string|null>(null);
+  useEffect(()=>{
+    const task=dshBoard.layoutTask;
+    if(!task || handledLayout.current===task.id || ['pending','running'].includes(task.status))return;
+    if(task.status==='completed' && task.boardId===state.file.board.id && state.file.board.contentVersion<(task.contentVersion??0))return;
+    handledLayout.current=task.id;
+    if(task.status==='completed' && task.boardId===state.file.board.id){
+      setLayoutResult(task.moved?`AI 已整理 ${task.moved} 张卡片`:'AI 判断无需移动');
+      setLayoutFit(true);setFitNonce(n=>n+1);
+    }else setLayoutResult(task.message??'布局任务已结束');
+  },[dshBoard.layoutTask,state.file]);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
@@ -68,7 +79,7 @@ export default function App() {
     } catch (e) {
       reportError(e);
     }
-  }, [state.replay.active, state.editingId, state.fileConflict, state.saveState, dispatch, reportError]);
+  }, [state.sessionId, state.replay.active, state.editingId, state.fileConflict, state.saveState, dispatch, reportError]);
 
   // 已安装 PWA 从 Windows 双击 .draft 启动时，Chromium 会把真实文件句柄放入 launchQueue。
   const openLaunchedFile = useCallback(
@@ -222,8 +233,9 @@ export default function App() {
   }, []);
   const onFit = useCallback(() => { setLayoutFit(false); setFitNonce((n) => n + 1); }, []);
   const onLayout = (selectedOnly: boolean) => {
-    if (layoutBusy) return;
+    if (layoutBusy || dshBoard.layoutRunning) return;
     setLayoutResult(null);
+    if(dshBoard.embedded){void dshBoard.requestLayout(selectedOnly).catch(reportError);return;}
     setLayoutBusy(true);
     // 先让“整理中”绘制一帧，再运行可能耗时的关系线/集合避让。
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -258,7 +270,9 @@ export default function App() {
         onExportPng={() => void doExportPng()}
         onFit={onFit}
         onLayout={onLayout}
-        layoutBusy={layoutBusy}
+        layoutBusy={layoutBusy || dshBoard.layoutRunning}
+        aiLayout={dshBoard.embedded}
+        onCancelLayout={dshBoard.layoutRunning && dshBoard.layoutTask ? ()=>void dshBoard.cancelLayout().catch(reportError) : undefined}
           layoutResult={layoutResult}
         structureView={structureView}
         onToggleStructure={() => setStructureView((v) => !v)}

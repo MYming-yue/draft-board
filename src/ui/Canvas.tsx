@@ -962,7 +962,7 @@ export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasPro
       >
         {collectionUI.layer}
         <EdgeLayer
-          nodes={nodes}
+          nodes={drag ? nodes.map(n => drag.ids.includes(n.id) ? {...n,x:n.x+drag.dx,y:n.y+drag.dy} : n) : nodes}
           edges={edges}
           heights={heights}
           widths={widths}

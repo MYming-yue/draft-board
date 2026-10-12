@@ -2,87 +2,10 @@ import { useEffect, useState } from "react";
 import type { BoardEdge, BoardNode } from "../model";
 import { visibleEdges } from "../model";
 
+import { edgeGeometry } from "../model/edgeRouting";
+export { edgeGeometry } from "../model/edgeRouting";
+export type { EdgeGeom } from "../model/edgeRouting";
 const EST_H = 120;
-
-export interface EdgeGeom {
-  fromPt: { x: number; y: number };
-  toPt: { x: number; y: number };
-  mid: { x: number; y: number };
-  d: string;
-}
-
-function rectOf(n: BoardNode, heights: Record<string, number>, widths?: Record<string, number>) {
-  // 实测外框优先，纯公式卡贴合后可能比旧存档 w/h 更小。
-  const h = heights[n.id] ?? n.h ?? EST_H;
-  const w = widths?.[n.id] ?? n.w;
-  return { x: n.x, y: n.y, w, h, cx: n.x + w / 2, cy: n.y + h / 2 };
-}
-
-/** 中心到中心连线与卡片矩形边界的交点（向外再推 pad 像素，箭头锚在卡片边框外侧）。 */
-function borderPoint(r: ReturnType<typeof rectOf>, toward: { x: number; y: number }, pad: number) {
-  const dx = toward.x - r.cx;
-  const dy = toward.y - r.cy;
-  if (dx === 0 && dy === 0) return { x: r.cx, y: r.cy };
-  const scaleX = dx !== 0 ? (r.w / 2 + pad) / Math.abs(dx) : Infinity;
-  const scaleY = dy !== 0 ? (r.h / 2 + pad) / Math.abs(dy) : Infinity;
-  const s = Math.min(scaleX, scaleY);
-  return { x: r.cx + dx * s, y: r.cy + dy * s };
-}
-
-export function edgeGeometry(
-  e: BoardEdge,
-  nodes: BoardNode[],
-  heights: Record<string, number>,
-  widths?: Record<string, number>,
-  edges: readonly BoardEdge[] = [],
-): EdgeGeom | null {
-  const from = nodes.find((n) => n.id === e.from);
-  const to = nodes.find((n) => n.id === e.to);
-  if (!from || !to) return null;
-  const rf = rectOf(from, heights, widths);
-  const rt = rectOf(to, heights, widths);
-  const reciprocal = e.kind === "association" && e.directed && edges.some(other =>
-    other.kind === "association" && other.directed && other.from === e.to && other.to === e.from);
-  if (reciprocal) {
-    // Both directions bend to their own left, so the two curves occupy opposite sides.
-    const vx = rt.cx - rf.cx;
-    const vy = rt.cy - rf.cy;
-    const length = Math.hypot(vx, vy);
-    const nx = length ? -vy / length : 0;
-    const ny = length ? vx / length : (e.from < e.to ? 1 : -1);
-    const bend = Math.min(96, Math.max(48, length * 0.18));
-    const control = { x: (rf.cx + rt.cx) / 2 + nx * bend, y: (rf.cy + rt.cy) / 2 + ny * bend };
-    const fromPt = borderPoint(rf, control, 2);
-    const toPt = borderPoint(rt, control, 6);
-    return {
-      fromPt, toPt,
-      mid: { x: (fromPt.x + 2 * control.x + toPt.x) / 4, y: (fromPt.y + 2 * control.y + toPt.y) / 4 },
-      d: `M ${fromPt.x} ${fromPt.y} Q ${control.x} ${control.y}, ${toPt.x} ${toPt.y}`,
-    };
-  }
-  // 边框到边框：源端 +2、目标端 +6（箭头头部完整落在目标卡外侧，任何角度可见）
-  const fromPt = borderPoint(rf, { x: rt.cx, y: rt.cy }, 2);
-  const toPt = borderPoint(rt, { x: rf.cx, y: rf.cy }, 6);
-  // 控制点沿各自连接边的外法线延伸：上下边竖直进出，左右边水平进出。
-  // 不设置最小伸出距离，避免间距很小时控制点越过对端形成回折。
-  const controlAt = (r: ReturnType<typeof rectOf>, pt: { x: number; y: number }, pad: number) => {
-    const horizontal = Math.abs(pt.x - r.cx) / (r.w / 2 + pad)
-      >= Math.abs(pt.y - r.cy) / (r.h / 2 + pad);
-    const reach = Math.abs(horizontal ? toPt.x - fromPt.x : toPt.y - fromPt.y) / 2;
-    return horizontal
-      ? { x: pt.x + Math.sign(pt.x - r.cx) * reach, y: pt.y }
-      : { x: pt.x, y: pt.y + Math.sign(pt.y - r.cy) * reach };
-  };
-  const c1 = controlAt(rf, fromPt, 2);
-  const c2 = controlAt(rt, toPt, 6);
-  const d = `M ${fromPt.x} ${fromPt.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${toPt.x} ${toPt.y}`;
-  // 三次贝塞尔 t=0.5 中点
-  const mid = {
-    x: (fromPt.x + 3 * c1.x + 3 * c2.x + toPt.x) / 8,
-    y: (fromPt.y + 3 * c1.y + 3 * c2.y + toPt.y) / 8,
-  };
-  return { fromPt, toPt, mid, d };
-}
 
 interface EdgeLayerProps {
   nodes: BoardNode[];

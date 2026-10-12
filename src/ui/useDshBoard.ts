@@ -2,17 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { parseBoard, serializeBoard, type DraftBundle } from "../model";
 import { sameDraftContent, verifyExternalUpdate, type ExternalChanges } from "./externalChanges";
 import type { EditorApi } from "./store";
+import { measureLayoutGeometry } from "./layoutGeometry";
+import { layoutMovableIds } from "./layoutConstraints";
 
 export const isDshBoard = new URLSearchParams(window.location.search).get("dshBoard") === "1";
 interface Snapshot { revision: string; data: string; fileName: string }
+interface LayoutTask { id:string; boardId:string; status:string; moved:number; contentVersion?:number; message?:string }
 function encode(bytes: Uint8Array) {
   let binary = "";
   for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
   return btoa(binary);
 }
 function decode(data: string) { return Uint8Array.from(atob(data), c => c.charCodeAt(0)); }
-async function request<T>(path: string, body?: object): Promise<T> {
-  const response = await fetch("/api/dsh-board/" + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store" });
+async function request<T>(path: string, body?: object, method?: string): Promise<T> {
+  const response = await fetch("/api/dsh-board/" + path, body ? { method: method ?? "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { method:method ?? 'GET', cache: "no-store" });
   const result = await response.json();
   if (!response.ok) throw Object.assign(new Error(result.error?.message ?? "共同白板连接失败"), { code: result.error?.code });
   return result as T;
@@ -28,6 +31,12 @@ export function useDshBoard(editor: EditorApi, layoutBusy: boolean) {
   const [loading, setLoading] = useState(isDshBoard);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("连接白板…");
+  const [layoutTask,setLayoutTask] = useState<LayoutTask|null>(null);
+  const [layoutSubmitting,setLayoutSubmitting] = useState(false);
+  const activeLayout=useRef<LayoutTask|null>(null);
+  activeLayout.current=layoutTask;
+  const layoutLauncher=useRef<(selectedOnly:boolean)=>Promise<void>>(async()=>{throw new Error("白板尚未连接");});
+  const admissions=useRef(new Map<string,{resolve:(task:LayoutTask)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>());
   useLayoutEffect(() => {
     if (!isDshBoard) return;
     const update = pending.current;
@@ -102,12 +111,50 @@ export function useDshBoard(editor: EditorApi, layoutBusy: boolean) {
       if (!stopped) { setError(text); setStatus("同步暂停"); }
     };
     async function tick() {
-      try { await flush(); } catch (cause) { fail(cause); }
+      try {
+        await flush();
+        const active=activeLayout.current;
+        if(active && ['pending','running'].includes(active.status)) {
+          try {
+            const geometry=measureLayoutGeometry(latest.current.editor.state.file.nodes);
+            const canvas=document.querySelector<HTMLElement>('.canvas');
+            if(geometry && canvas && !busy()) await request('layout/geometry',{id:active.id,geometry,viewport:{width:canvas.clientWidth,height:canvas.clientHeight}});
+            const next=await request<LayoutTask>('layout?id='+encodeURIComponent(active.id));
+            if(!stopped)setLayoutTask(next);
+          } catch(cause) {
+            if(!stopped)setLayoutTask({...active,status:'failed',message:cause instanceof Error?cause.message:'布局连接已失效，请重新整理。'});
+          }
+        }
+      } catch (cause) { fail(cause); }
       finally { if (!stopped) timer = setTimeout(tick, 750); }
     }
     const message = (event: MessageEvent) => {
-      if (event.origin !== location.origin || event.source !== window.parent || event.data?.source !== "dsh-board-host" || event.data.type !== "flush") return;
+      if (event.origin !== location.origin || event.source !== window.parent || event.data?.source !== "dsh-board-host") return;
+      if(event.data.type==='layout-admitted') {
+        const admission=admissions.current.get(event.data.id);if(!admission)return;
+        clearTimeout(admission.timer);admissions.current.delete(event.data.id);
+        if(event.data.task)admission.resolve(event.data.task);else admission.reject(new Error(event.data.error ?? '布局任务未被接受。'));
+        return;
+      }
+      if(event.data.type !== 'flush')return;
       void flush().then(() => post({ type: "flushed", id: event.data.id }), cause => { fail(cause); post({ type: "flushed", id: event.data.id, error: cause instanceof Error ? cause.message : String(cause) }); });
+    };
+    layoutLauncher.current=async(selectedOnly)=>{
+      if(activeLayout.current && ['pending','running'].includes(activeLayout.current.status))throw new Error('已有布局任务，请等待完成或取消。');
+      await flush();
+      const state=latest.current.editor.state,base=baseline.current;
+      if(busy() || pending.current || !base || !sameDraftContent(state.file,base.bundle.file))throw new Error('请结束当前编辑并等待白板同步，再整理布局。');
+      const geometry=measureLayoutGeometry(state.file.nodes),canvas=document.querySelector<HTMLElement>('.canvas');
+      if(!geometry || !canvas)throw new Error('卡片尺寸尚未就绪，请稍后重试。');
+      const nodeIds=selectedOnly?[...layoutMovableIds(state.file,state.selection.nodes)]:state.file.nodes.map(n=>n.id);
+      if(!nodeIds.length)throw new Error(selectedOnly?'请先选中要整理的卡片。':'白板为空，无需整理。');
+      const id=crypto.randomUUID();
+      const accepted=new Promise<LayoutTask>((resolve,reject)=>{
+        const timer=setTimeout(()=>{admissions.current.delete(id);reject(new Error('任务提交未确认，请查看 DSH 对话。'));},20000);
+        admissions.current.set(id,{resolve,reject,timer});
+      });
+      post({type:'layout-request',id,snapshot:{boardId:state.file.board.id,baseContentVersion:state.file.board.contentVersion,revision:base.revision,geometry,viewport:{width:canvas.clientWidth,height:canvas.clientHeight},nodeIds}});
+      setLayoutTask(await accepted);
     };
     const down = (event: PointerEvent) => pointers.current.add(event.pointerId);
     const up = (event: PointerEvent) => pointers.current.delete(event.pointerId);
@@ -121,10 +168,12 @@ export function useDshBoard(editor: EditorApi, layoutBusy: boolean) {
       baseline.current = { bundle, revision: snapshot.revision, sessionId: null };
       latest.current.editor.dispatch({ type: "load", bundle, handle: null, fileName: snapshot.fileName });
       setLoading(false); setStatus("已同步");
+      void request<{task:LayoutTask|null}>('layout').then(result=>{if(!stopped && result.task?.boardId===bundle.file.board.id)setLayoutTask(result.task);}).catch(()=>{});
       timer = setTimeout(tick, 750);
     }).catch(fail);
     return () => {
       stopped = true; clearTimeout(timer);
+      for(const admission of admissions.current.values()){clearTimeout(admission.timer);admission.reject(new Error('白板已关闭。'));}admissions.current.clear();
       window.removeEventListener("message", message);
       window.removeEventListener("pointerdown", down, true); window.removeEventListener("pointerup", up, true);
       window.removeEventListener("pointercancel", up, true); window.removeEventListener("blur", reset);
@@ -138,5 +187,7 @@ export function useDshBoard(editor: EditorApi, layoutBusy: boolean) {
         return node ? [{ id, title: node.markdown?.split("\n")[0].replace(/^#+\s*/, "").slice(0, 80) || "图片卡片" }] : [];
       }) }, location.origin);
   }, [editor.state.file, editor.state.selection, loading, status]);
-  return { loading, error };
+  return { loading, error, embedded:isDshBoard, layoutTask, layoutRunning:layoutSubmitting || (!!layoutTask && ['pending','running'].includes(layoutTask.status)),
+    requestLayout:async(selectedOnly:boolean)=>{setLayoutSubmitting(true);try{await layoutLauncher.current(selectedOnly);}finally{setLayoutSubmitting(false);}},
+    cancelLayout:async()=>{if(layoutTask)setLayoutTask(await request<LayoutTask>('layout?id='+encodeURIComponent(layoutTask.id),undefined,'DELETE'));} };
 }

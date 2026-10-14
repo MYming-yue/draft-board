@@ -1,6 +1,7 @@
 import { ACCENTS, type Accent } from "../model";
 import type { EditorApi } from "./store";
 import { HistoryIcon } from "./HistoryIcon";
+import { AppearanceControls } from './AppearanceControls';
 
 interface ToolbarProps {
   editor: EditorApi;
@@ -119,6 +120,7 @@ export function Toolbar(p: ToolbarProps) {
         ))}
       </span>
       <span className="spacer" />
+      <AppearanceControls editor={p.editor} />
       {state.saveError && <span className="save-error" title={state.saveError}>⚠ {state.saveError}</span>}
       <span className={`save-status ${status.cls}`}>{status.text}</span>
     </div>

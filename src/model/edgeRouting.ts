@@ -1,4 +1,4 @@
-import type { BoardEdge, BoardNode } from "./types";
+import type { BoardEdge, BoardNode, NodeShape } from "./types";
 export type Point = {
     x: number;
     y: number;
@@ -39,12 +39,48 @@ export function segmentTouchesRect(a: Point, b: Point, r: Rect): boolean {
     return true;
 }
 const clear = (a: Point, b: Point, rects: Rect[]) => !rects.some(r => segmentTouchesRect(a, b, r));
-function border(r: Rect, p: Point, pad: number): Point {
+function border(r: Rect, p: Point, pad: number, shape?: NodeShape): Point {
     const cx = r.x + r.w / 2, cy = r.y + r.h / 2, dx = p.x - cx, dy = p.y - cy;
     if (!dx && !dy)
         return { x: cx, y: cy };
-    const s = Math.min(dx ? (r.w / 2 + pad) / Math.abs(dx) : Infinity, dy ? (r.h / 2 + pad) / Math.abs(dy) : Infinity);
+    let s = Math.min(dx ? (r.w / 2 + pad) / Math.abs(dx) : Infinity, dy ? (r.h / 2 + pad) / Math.abs(dy) : Infinity);
+    if (shape === 'diamond') s = 1 / (Math.abs(dx) / (r.w / 2 + pad) + Math.abs(dy) / (r.h / 2 + pad));
+    if (shape === 'pill') {
+        const rx = r.w / 2 + pad, ry = r.h / 2 + pad, radius = Math.min(rx,ry);
+        let lo = 0, hi = s;
+        for (let i=0;i<24;i++) {
+            const t=(lo+hi)/2, x=Math.max(0,Math.abs(dx*t)-rx+radius), y=Math.max(0,Math.abs(dy*t)-ry+radius);
+            if (x*x+y*y <= radius*radius) lo=t; else hi=t;
+        }
+        s=lo;
+    }
     return { x: cx + dx * s, y: cy + dy * s };
+}
+/** Shared trunks are derived from existing edges, never extra hidden nodes. */
+function flowPath(from: BoardNode, to: BoardNode, nodes: BoardNode[], rect: (node: BoardNode) => Rect, edges: readonly BoardEdge[]): Point[] {
+    const rf=rect(from), rt=rect(to), start=ports(rf,2), end=ports(rt,6), cx=rf.x+rf.w/2, tx=rt.x+rt.w/2;
+    if (from.id === to.id) return [start[0],{x:rf.x+rf.w+36,y:start[0].y},{x:rf.x+rf.w+36,y:rf.y-36},{x:end[3].x,y:rf.y-36},end[3]];
+    if (rt.y >= rf.y+rf.h+16) {
+        if (from.shape === 'diamond' && Math.abs(tx-cx)>rf.w*.4) {
+            const p=start[tx>cx ? 0 : 2]; return [p,{x:end[3].x,y:p.y},end[3]];
+        }
+        if (to.shape === 'diamond' && Math.abs(tx-cx)>rt.w*.4) {
+            const q=end[tx>cx ? 2 : 0]; return [start[1],{x:start[1].x,y:q.y},q];
+        }
+        const children=edges.filter(o=>o.routing==='orthogonal' && o.from===from.id).flatMap(o=>nodes.filter(n=>n.id===o.to && n.y>=rf.y+rf.h+16).map(rect));
+        const parents=edges.filter(o=>o.routing==='orthogonal' && o.to===to.id).flatMap(o=>nodes.filter(n=>n.id===o.from && rect(n).y+rect(n).h+16<=rt.y).map(rect));
+        const top=children.length>1 ? Math.min(...children.map(r=>r.y)) : rt.y;
+        const bottom=children.length<=1 && parents.length>1 ? Math.max(...parents.map(r=>r.y+r.h)) : rf.y+rf.h;
+        const bus=(top+bottom)/2;
+        return [start[1],{x:start[1].x,y:bus},{x:end[3].x,y:bus},end[3]];
+    }
+    if (rt.y+rt.h+16 <= rf.y) {
+        const left=Math.min(rf.y,rt.y), bottom=Math.max(rf.y+rf.h,rt.y+rt.h);
+        const lane=Math.max(rf.x+rf.w,rt.x+rt.w,...nodes.filter(n=>{const r=rect(n);return r.y+r.h>=left && r.y<=bottom;}).map(n=>{const r=rect(n);return r.x+r.w;}))+36;
+        return [start[0],{x:lane,y:start[0].y},{x:lane,y:end[0].y},end[0]];
+    }
+    const right=tx>=cx, p=start[right?0:2], q=end[right?2:0], bus=(p.x+q.x)/2;
+    return [p,{x:bus,y:p.y},{x:bus,y:q.y},q];
 }
 function curve(pts: Point[]): Point[] {
     return Array.from({ length: 49 }, (_, i) => {
@@ -202,17 +238,21 @@ export function edgeGeometry(e: BoardEdge, nodes: BoardNode[], heights: Record<s
     const rf = rect(from), rt = rect(to), a = { x: rf.x + rf.w / 2, y: rf.y + rf.h / 2 }, b = { x: rt.x + rt.w / 2, y: rt.y + rt.h / 2 };
     const reciprocal = e.kind === "association" && e.directed && edges.some(o => o.kind === "association" && o.directed && o.from === e.to && o.to === e.from);
     let fromPt: Point, toPt: Point, points: Point[], d: string;
-    if (reciprocal) {
+    if (e.routing === 'orthogonal') {
+        const path=simplify(flowPath(from,to,nodes,rect,edges)), rounded=roundedPath(path);
+        fromPt=path[0];toPt=path.at(-1)!;points=rounded.points;d=rounded.d;
+    }
+    else if (reciprocal) {
         const vx = b.x - a.x, vy = b.y - a.y, length = Math.hypot(vx, vy), bend = Math.min(96, Math.max(48, length * .18));
         const c = { x: (a.x + b.x) / 2 + (length ? -vy / length : 0) * bend, y: (a.y + b.y) / 2 + (length ? vx / length : (e.from < e.to ? 1 : -1)) * bend };
-        fromPt = border(rf, c, 2);
-        toPt = border(rt, c, 6);
+        fromPt = border(rf, c, 2, from.shape);
+        toPt = border(rt, c, 6, to.shape);
         points = curve([fromPt, c, toPt]);
         d = `M ${fromPt.x} ${fromPt.y} Q ${c.x} ${c.y}, ${toPt.x} ${toPt.y}`;
     }
     else {
-        fromPt = border(rf, b, 2);
-        toPt = border(rt, a, 6);
+        fromPt = border(rf, b, 2, from.shape);
+        toPt = border(rt, a, 6, to.shape);
         const control = (r: Rect, p: Point, pad: number) => { const cx = r.x + r.w / 2, cy = r.y + r.h / 2, horizontal = Math.abs(p.x - cx) / (r.w / 2 + pad) >= Math.abs(p.y - cy) / (r.h / 2 + pad), reach = Math.abs(horizontal ? toPt.x - fromPt.x : toPt.y - fromPt.y) / 2; return horizontal ? { x: p.x + Math.sign(p.x - cx) * reach, y: p.y } : { x: p.x, y: p.y + Math.sign(p.y - cy) * reach }; };
         const c1 = control(rf, fromPt, 2), c2 = control(rt, toPt, 6);
         points = curve([fromPt, c1, c2, toPt]);

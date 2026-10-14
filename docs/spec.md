@@ -1,6 +1,6 @@
 # Draft Board 公开规格
 
-应用版本：0.2.0。无集合的新文件 `formatVersion` 为 1.0，首次集合操作后升级为 2.0（不自动降级）；批次 `batchVersion` 仍为 1.0，应用版本不等同于文件格式版本。
+应用版本：0.2.0。无集合的新文件 `formatVersion` 为 1.0，首次集合操作后至少升级为 2.0，使用流程外形／线条后为 3.0（不自动降级）；批次 `batchVersion` 仍为 1.0，应用版本不等同于文件格式版本。
 
 本文随源码维护，描述当前 `.draft` 格式、Agent 批次和编辑行为。类型的精确载荷定义见 [`src/model/types.ts`](../src/model/types.ts)，运行时校验见 [`validate.ts`](../src/model/validate.ts)。当前没有单独发布可供通用 JSON Schema 校验器加载的 schema 文件；不能把 TypeScript 类型检查当作运行时输入校验。
 
@@ -20,7 +20,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| `formatVersion` | 支持 `"1.0"` / `"2.0"`；其他主版本拒绝读取 |
+| `formatVersion` | 支持 `"1.0"` / `"2.0"` / `"3.0"`；其他主版本拒绝读取 |
 | `board` | `id`、`name`、`createdAt`、`updatedAt`、`contentVersion`、`view` |
 | `nodes` | 卡片数组 |
 | `collections` | 可选集合数组，旧文件缺省为空；详见 §7 |
@@ -30,7 +30,7 @@
 
 `view` 含 `panX/panY/zoom`，zoom 范围为 `(0,10]`。节点、边、资源、白板的 ID 分别使用 `n_`、`e_`、`a_`、`b_` 前缀，后接 6–32 个字母、数字、下划线或短横线。
 
-节点公共字段：`id/type/x/y/w`，可选 `h/accent/captionExpanded/coreScale/captionW`。位置是有限世界坐标，宽度大于零，`h` 可缺省、为 null 或为正数。颜色为 `default/blue/green/amber/red`。`captionExpanded` 为布尔值，缺省或 `false` 表示未选中时备注按 15 行截断；`true` 表示阅读态常驻展开。`coreScale` 为普通文本核心比例，缺省 1。`captionW` 为备注阅读宽度。
+节点公共字段：`id/type/x/y/w`，可选 `h/accent/captionExpanded/coreScale/captionW/shape`。位置是有限世界坐标，宽度大于零，`h` 可缺省、为 null 或为正数。颜色为 `default/blue/green/amber/red`。`captionExpanded` 为布尔值，缺省或 `false` 表示未选中时备注按 15 行截断；`true` 表示阅读态常驻展开。`coreScale` 为普通文本核心比例，缺省 1。`captionW` 为备注阅读宽度。
 
 - `type=text`：必须含 `markdown` 字符串，可含独立 `caption` 字符串。
 - `type=image`：必须含 `assetId`，可选 `markdown` 作为图片说明；不使用 `caption`。
@@ -40,7 +40,7 @@
 - 备注阅读态默认最多 15 行，超出截断；单击选中卡片时展开全文。编辑区固定 15 行高，并提供「常驻展开」开关（默认关闭），写入 `captionExpanded`。结构视图仍整段隐藏备注。
 - 纯公式由 Markdown 去除首尾空白后是否整体为单个 `$...$` 或 `$$...$$` 判断；混合正文保留普通卡片布局。渲染失败保留源码。
 
-边包含 `id/kind/from/to/directed`，可选 `label`。`parentChild` 必须有向、单父、无环；`association` 可以跨分支与形成循环。
+边包含 `id/kind/from/to/directed`，可选 `label/routing/stroke`；流程外观见 §9。`parentChild` 必须有向、单父、无环；`association` 可以跨分支与形成循环。
 
 兼容性：新读取器接受无 `caption` / `captionExpanded` / `coreScale` / `captionW` 的旧文件。增加 `updateNodeCaption`、`setCaptionExpanded`、`setCaptionWidth` 以及 `resizeNode.coreScale` 后，包含这些操作的历史可能被旧程序以 `E_SCHEMA` 拒绝；不能仅凭 `formatVersion=1.0` 推断双向兼容。
 
@@ -62,6 +62,8 @@
 | `addEdge` | `edge` | 完整 edge |
 | `removeEdge` | `edgeId` | null |
 | `updateEdge` | `edgeId` | `{from,to,label?,directed}` |
+| `setNodeShape` | `nodeId` | `{shape: card/rectangle/diamond/pill或null}` |
+| `setEdgeStyle` | `edgeId` | `{routing: curve/orthogonal或null, stroke: solid/dashed或null}` |
 | `reparent` | `nodeId` | `{parentId: string或null}` |
 
 ### 2-D. Agent 批次
@@ -193,7 +195,7 @@ I1：边端点存在，删除节点同步删除关联边。I2：父子图单父�
 
 所有操作进入共享模型、原子批次、历史和版本检查。`before` 从真实状态重算。重复集合 ID 返回 `E_DUP_ID`，成员不存在返回 `E_UNKNOWN_NODE`，非法形状、重复成员、集合不存在或更新身份返回 `E_SCHEMA`。删除卡片自动从所有集合移除其 ID，`removeNode.before.collections` 可选保存受影响集合快照，撤销恢复全部归属。集合最后一张卡片被移除后保留为空集合。
 
-任一集合操作后文件格式为 2.0，撤销不降级。保存带集合的外部对象时也写为 2.0。新版读取无集合的 1.0 文件；旧程序必须通过主版本检查拒绝 2.0，防止脱历史分享文件中的集合被静默丢弃。批次版本仍为 1.0，增加上述三种操作；旧 CLI 不支持这些操作。旧文件内既有卡片、边、资源 ID 不迁移。
+任一集合操作后文件格式至少为 2.0，撤销不降级；已有 3.0 不降级。保存带集合的外部对象时也至少写为 2.0。新版读取无集合的 1.0 文件；旧程序必须通过主版本检查拒绝 2.0，防止脱历史分享文件中的集合被静默丢弃。批次版本仍为 1.0，增加上述三种操作；旧 CLI 不支持这些操作。旧文件内既有卡片、边、资源 ID 不迁移。
 
 ### 7-B. 显示与操作
 
@@ -351,3 +353,30 @@ AI 通过读取与应用批次两个白板工具主动维护当前草稿；复�
 等待模型期间仍可编辑白板，内容变化使旧候选失效。页面约每 750ms 上报可测量尺寸，外框／窗口变化经宿主收到后使任务失效。候选通过后沿用外部批次接收，可一次撤销；失败不显示半成品。“取消整理”阻止提交，停止模型生成沿用 DSH 原生停止按钮。接收成功后适应视图并显示移动数；无需移动不追加历史。
 
 回归包含 `src/model/edgeRouting.test.ts` 与既有模型／浏览器检查；`smoke:edges` 在默认和非 100% 缩放验证绘制路径、长备注外框及说明不相交。AI 任务身份／版本、范围与取消回归归宿主仓库。文件格式和操作词汇不变。
+
+## 9. 可选流程外观（2026-10-14）
+
+白板继续作为阅读、理解和人做决定的草稿。外形与线条用于辨认关系，不引入可执行流程、运行状态或自动决策。普通知识卡与流程节点可以混合使用，旧文件不会自动重排或改写内容。
+
+### 9-A. 字段、操作与兼容性
+
+文本／公式卡可选 `shape: card|rectangle|diamond|pill`，缺省等于 card。rectangle 为步骤矩形，diamond 为判断菱形，pill 为起止圆角；图片保持原外观，不接受 shape。边可选 `routing: curve|orthogonal`、`stroke: solid|dashed`，缺省沿用原曲线与避让、association 虚线／parentChild 实线。kind、方向、端点与标签仍表达原有关系，不由视觉自动改成流程语义。
+
+| op | 标识 | before / after |
+| --- | --- | --- |
+| setNodeShape | nodeId | `{shape: enum或null}`；null 删除字段，恢复普通卡 |
+| setEdgeStyle | edgeId | `{routing: enum或null, stroke: enum或null}`；两项都提供，null 恢复对应默认 |
+
+addNode／addEdge 可直接携带新字段；updateEdge 修改端点／标签时保留既有样式。新操作只接受自己的样式字段，before 按真实状态重算，整批失败不留下修改。所有操作参与撤销、重做、回放、复制与文件同步；恢复普通外观不删除内容、备注或关系。
+
+首次使用新样式或其操作历史后格式升级为 3.0，撤销与集合操作不降级；脱历史分享仍保留样式与版本。新读取器接受 1／2／3 主版本；旧版通过未知主版本错误拒绝 3.0，避免静默丢失新呈现。未使用新功能的旧草稿保留格式。批次版本仍为 1.0。
+
+### 9-B. 呈现与交互
+
+选中一张或多张文本／公式卡、连线后，顶栏提供紧凑“外形与连线”入口；改变所选对象作为一个步骤提交，相同值不新增历史。回放或卡片编辑期间禁用样式修改，菜单可用键盘操作。菱形和圆角用 SVG 轮廓、HTML 内容，不裁切文字或公式；正文与备注保留正常字体和既有编辑方式。整个可见内容分配到轮廓内部的安全矩形，长备注展开时轮廓同步增大，结构视图隐藏备注后收缩；不改变存档位置。尺寸、吸附、避让、集合与导出继续使用实际外框。
+
+从流程外形卡拖出或拖入关联线时默认用实线流程折线；普通卡之间继续原默认。流程折线优先自上而下，步骤的多路分叉／汇合共享派生干线；偏向两侧的菱形分支从侧尖出入，向上的反馈线沿外围返回。干线是现有边的共同画法，不创建隐形卡片或额外关系；各边身份、方向、标签和选择独立保留。路径遇到卡片仍用已有可见性网格避让，不保证关系线彼此不交叉。曲线与流程折线可混合使用，菱形／圆角曲线端点贴合真实轮廓。SVG 路径、标签和外形随 PNG 导出。
+
+### 9-C. 验证
+
+模型回归覆盖合法／非法样式、图片拒绝、原子失败、真实 before、撤销回放、复制、存盘分享与版本不降级，以及分叉干线、反馈避让和菱形端点。`smoke:flow` 验证实际轮廓、公式与备注、样式修改与撤销、输入法、文件往返、PNG、结构视图和非 100% 缩放，纳入完整 check。

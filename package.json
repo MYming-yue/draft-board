@@ -18,11 +18,12 @@
     "smoke:concept": "node scripts/verify-concept-cards.mjs",
     "smoke:edges": "node scripts/verify-association-edges.mjs",
     "smoke:pwa": "node scripts/verify-pwa-file-launch.mjs",
-    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:concept && npm run smoke:edges && npm run smoke:pwa && npm run smoke:collections && npm run smoke:layout && npm run smoke:sync",
+    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:concept && npm run smoke:edges && npm run smoke:pwa && npm run smoke:collections && npm run smoke:layout && npm run smoke:sync && npm run smoke:flow",
     "preview": "vite preview",
     "smoke:collections": "node scripts/verify-collections.mjs",
     "smoke:layout": "node scripts/verify-layout.mjs",
-    "smoke:sync": "node scripts/verify-file-sync.mjs"
+    "smoke:sync": "node scripts/verify-file-sync.mjs",
+    "smoke:flow": "node scripts/verify-flow-appearance.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",

@@ -542,6 +542,8 @@ export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasPro
         from: nodeId,
         to: targetId,
         directed: true,
+        ...(file.nodes.some(n=>[nodeId,targetId].includes(n.id) && n.shape && n.shape !== 'card')
+          ? {routing:'orthogonal' as const,stroke:'solid' as const} : {}),
       };
       commit("建立关联", connectAssociationOps(file.edges, edge), { nodes: [], edges: [edge.id] });
       setEditingLabelId(edge.id);

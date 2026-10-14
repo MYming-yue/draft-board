@@ -1,0 +1,42 @@
+import { useState } from 'react';
+import { type EdgeRouting, type EdgeStroke, type NodeShape, type Op } from '../model';
+import type { EditorApi } from './store';
+
+const shapes: [NodeShape, string][] = [['card','普通卡片'],['rectangle','步骤矩形'],['diamond','判断菱形'],['pill','起止圆角']];
+export function AppearanceControls({ editor }: { editor: EditorApi }) {
+  const [open, setOpen] = useState(false);
+  const { state, commit } = editor;
+  const nodes = state.file.nodes.filter(n => state.selection.nodes.includes(n.id) && n.type === 'text');
+  const edges = state.file.edges.filter(e => state.selection.edges.includes(e.id));
+  if (!nodes.length && !edges.length) return null;
+  const disabled = state.replay.active || !!state.editingId;
+  const common = <T,>(values: T[]) => values.every(v => v === values[0]) ? values[0] : '__mixed__';
+  const setShape = (shape: NodeShape) => {
+    const ops: Op[] = nodes.filter(n => (n.shape ?? 'card') !== shape).map(n => ({op:'setNodeShape',nodeId:n.id,before:null,after:{shape:shape === 'card' ? null : shape}}));
+    if (ops.length) commit('设置卡片外形',ops);
+  };
+  const setEdge = (key: 'routing' | 'stroke', value: EdgeRouting | EdgeStroke | '') => {
+    const ops: Op[] = edges.filter(e => (e[key] ?? '') !== value).map(e => ({op:'setEdgeStyle',edgeId:e.id,before:null,
+      after:{routing:e.routing ?? null,stroke:e.stroke ?? null,[key]:value || null}}));
+    if (ops.length) commit('设置连线画法',ops);
+  };
+  return <div className="appearance-controls" onKeyDown={e=>{if(e.key==='Escape')setOpen(false);e.stopPropagation();}}>
+    <button type="button" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}>外形与连线 ▾</button>
+    {open && <div className="appearance-popover" role="group" aria-label="外形与连线设置">
+      {nodes.length > 0 && <label>卡片外形<select aria-label="卡片外形" disabled={disabled} value={common(nodes.map(n => n.shape ?? 'card'))}
+        onChange={e => setShape(e.target.value as NodeShape)}>
+        <option value="__mixed__" disabled>多种外形</option>{shapes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+      </select></label>}
+      {edges.length > 0 && <>
+        <label>连线画法<select aria-label="连线画法" disabled={disabled} value={common(edges.map(e => e.routing ?? ''))} onChange={e => setEdge('routing',e.target.value as EdgeRouting | '')}>
+          <option value="__mixed__" disabled>多种画法</option><option value="">默认曲线</option><option value="curve">自由曲线</option><option value="orthogonal">流程折线</option>
+        </select></label>
+        <label>线条<select aria-label="线条样式" disabled={disabled} value={common(edges.map(e => e.stroke ?? ''))} onChange={e => setEdge('stroke',e.target.value as EdgeStroke | '')}>
+          <option value="__mixed__" disabled>多种线条</option><option value="">默认</option><option value="solid">实线</option><option value="dashed">虚线</option>
+        </select></label>
+      </>}
+      <p>改变呈现，保留核心、备注与关系。</p>
+      <button type="button" onClick={() => setOpen(false)}>收起设置</button>
+    </div>}
+  </div>;
+}

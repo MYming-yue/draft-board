@@ -62,6 +62,7 @@ export function EdgeLayer(p: EdgeLayerProps) {
             "edge-path",
             isParent ? "edge-parent" : "edge-assoc",
             isSel ? "edge-selected" : "",
+            e.stroke ? `edge-stroke-${e.stroke}` : '',
           ].join(" ");
           const marker = isSel
             ? isParent
@@ -71,7 +72,7 @@ export function EdgeLayer(p: EdgeLayerProps) {
               ? "url(#arrow-parent)"
               : "url(#arrow-assoc)";
           return (
-            <g key={e.id} data-edge-id={e.id}>
+            <g key={e.id} data-edge-id={e.id} data-routing={e.routing ?? 'curve'}>
               <path className={cls} d={g.d} markerEnd={e.directed ? marker : undefined} />
               {!p.readOnly && (
                 <path className="edge-hit" d={g.d} onPointerDown={(ev) => p.onSelectEdge(ev, e.id)} />

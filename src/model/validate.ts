@@ -1,7 +1,7 @@
 // 契约 §2-B/§2-D 的 JSON Schema 校验（手写实现，不引 ajv）。
 // 每个校验器返回 null（通过）或 { path, message }（首个违例）。
 import { ID_PATTERNS } from "./ids";
-import { ACCENTS, OP_NAMES } from "./types";
+import { ACCENTS, NODE_SHAPES, OP_NAMES } from "./types";
 
 export interface ShapeViolation {
   path: string;
@@ -55,6 +55,8 @@ export function validateNodeShape(n: unknown, path = "node"): ShapeViolation | n
     return v(`${path}.coreScale`, "coreScale 须为 >0 的数值");
   if (n.captionW !== undefined && (!isNum(n.captionW) || n.captionW <= 0))
     return v(`${path}.captionW`, "captionW 须为 >0 的数值");
+  if (n.shape !== undefined && (n.type !== "text" || !NODE_SHAPES.includes(n.shape as never)))
+    return v(`${path}.shape`, "shape 仅用于文本/公式卡，须为 card|rectangle|diamond|pill");
   return null;
 }
 
@@ -67,6 +69,8 @@ export function validateEdgeShape(e: unknown, path = "edge"): ShapeViolation | n
   if (typeof e.directed !== "boolean") return v(`${path}.directed`, "directed 须为布尔值");
   if (e.kind === "parentChild" && e.directed !== true) return v(`${path}.directed`, "parentChild 边 directed 恒为 true");
   if (e.label !== undefined && !isStr(e.label)) return v(`${path}.label`, "label 须为字符串");
+  if (e.routing !== undefined && !["curve", "orthogonal"].includes(e.routing as string)) return v(`${path}.routing`, "routing 须为 curve|orthogonal");
+  if (e.stroke !== undefined && !["solid", "dashed"].includes(e.stroke as string)) return v(`${path}.stroke`, "stroke 须为 solid|dashed");
   return null;
 }
 
@@ -134,6 +138,14 @@ export function validateOpShape(o: unknown): ShapeViolation | null {
       if (!isStr(o.nodeId) || !ID_PATTERNS.node.test(o.nodeId)) return v("nodeId", "nodeId 须为合法节点 id");
       if (!isObj(after) || (after.captionW !== null && (!isNum(after.captionW) || after.captionW <= 0)))
         return v("after.captionW", "after.captionW 须为 >0 的数值或 null");
+      return null;
+    case "setNodeShape":
+      if (!isStr(o.nodeId) || !ID_PATTERNS.node.test(o.nodeId)) return v("nodeId", "nodeId 须为合法节点 id");
+      if (!isObj(after) || Object.keys(after).some(k=>k!=='shape') || (after.shape !== null && !NODE_SHAPES.includes(after.shape as never))) return v("after.shape", "after 只允许 shape：card|rectangle|diamond|pill 或 null");
+      return null;
+    case "setEdgeStyle":
+      if (!isStr(o.edgeId) || !ID_PATTERNS.edge.test(o.edgeId)) return v("edgeId", "edgeId 须为合法边 id");
+      if (!isObj(after) || Object.keys(after).some(k=>!['routing','stroke'].includes(k)) || ![null,"curve","orthogonal"].includes(after.routing as never) || ![null,"solid","dashed"].includes(after.stroke as never)) return v("after", "after 只允许合法 routing 与 stroke；null 恢复默认");
       return null;
     case "addEdge":
       return validateEdgeShape(o.edge, "edge");

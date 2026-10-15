@@ -1,13 +1,28 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { type EdgeRouting, type EdgeStroke, type NodeShape, type Op } from '../model';
 import type { EditorApi } from './store';
 
 const shapes: [NodeShape, string][] = [['card','普通卡片'],['rectangle','步骤矩形'],['diamond','判断菱形'],['pill','起止圆角']];
 export function AppearanceControls({ editor }: { editor: EditorApi }) {
   const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({left:8,top:8});
   const { state, commit } = editor;
   const nodes = state.file.nodes.filter(n => state.selection.nodes.includes(n.id) && n.type === 'text');
   const edges = state.file.edges.filter(e => state.selection.edges.includes(e.id));
+  useLayoutEffect(()=>{
+    if(!open || !anchor.current || !panel.current)return;
+    const place=()=>{
+      const a=anchor.current?.getBoundingClientRect(), p=panel.current?.getBoundingClientRect();
+      if(!a || !p)return;
+      const left=Math.max(8,Math.min(a.left,window.innerWidth-p.width-8));
+      const preferred=a.bottom+8+p.height<=window.innerHeight-8?a.bottom+8:a.top-p.height-8;
+      const top=Math.max(8,Math.min(preferred,window.innerHeight-p.height-8));
+      setPosition(old=>old.left===left&&old.top===top?old:{left,top});
+    };
+    place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);
+    return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);};
+  },[open,nodes.length,edges.length]);
   if (!nodes.length && !edges.length) return null;
   const disabled = state.replay.active || !!state.editingId;
   const common = <T,>(values: T[]) => values.every(v => v === values[0]) ? values[0] : '__mixed__';
@@ -20,9 +35,9 @@ export function AppearanceControls({ editor }: { editor: EditorApi }) {
       after:{routing:e.routing ?? null,stroke:e.stroke ?? null,[key]:value || null}}));
     if (ops.length) commit('设置连线画法',ops);
   };
-  return <div className="appearance-controls" onKeyDown={e=>{if(e.key==='Escape')setOpen(false);e.stopPropagation();}}>
+  return <div ref={anchor} className="appearance-controls" onKeyDown={e=>{if(e.key==='Escape')setOpen(false);e.stopPropagation();}}>
     <button type="button" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}>外形与连线 ▾</button>
-    {open && <div className="appearance-popover" role="group" aria-label="外形与连线设置">
+    {open && <div ref={panel} style={position} className="appearance-popover" role="group" aria-label="外形与连线设置">
       {nodes.length > 0 && <label>卡片外形<select aria-label="卡片外形" disabled={disabled} value={common(nodes.map(n => n.shape ?? 'card'))}
         onChange={e => setShape(e.target.value as NodeShape)}>
         <option value="__mixed__" disabled>多种外形</option>{shapes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}

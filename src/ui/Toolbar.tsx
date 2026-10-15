@@ -2,6 +2,7 @@ import { ACCENTS, type Accent } from "../model";
 import type { EditorApi } from "./store";
 import { HistoryIcon } from "./HistoryIcon";
 import { AppearanceControls } from './AppearanceControls';
+import { version } from '../../package.json';
 
 interface ToolbarProps {
   editor: EditorApi;
@@ -68,7 +69,7 @@ export function Toolbar(p: ToolbarProps) {
   return (
     <div className="toolbar">
       <span id="collection-controls" className="collection-controls" />
-      <span className="brand">草稿白板</span>
+      <span className="brand" title={`版本 ${version} · 支持草稿格式 1.0 / 2.0 / 3.0`}>草稿白板 <small className="app-version">v{version}</small></span>
       <input
         className="board-name"
         value={state.file.board.name}

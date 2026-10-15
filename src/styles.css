@@ -761,7 +761,9 @@ body,
 .node-card.selected .node-shape-outline,.node-card.connect-target .node-shape-outline { stroke:var(--selection); stroke-width:2; }
 .node-card.connect-target .node-shape-outline { stroke-dasharray:6 4; }
 .appearance-controls { position:relative; }
-.appearance-popover { position:absolute; right:0; top:calc(100% + 8px); z-index:30; min-width:235px; padding:14px; border:1px solid var(--card-border); border-radius:10px; background:var(--card-bg); color:var(--text); box-shadow:0 8px 30px #18243a18; }
+.appearance-popover { position:fixed; z-index:30; min-width:235px; max-width:calc(100vw - 16px); max-height:calc(100vh - 16px); overflow:auto; padding:14px; border:1px solid var(--card-border); border-radius:10px; background:var(--card-bg); color:var(--text); box-shadow:0 8px 30px #18243a18; }
 .appearance-popover label { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; font-size:12px; }
 .appearance-popover select { min-width:140px; padding:5px; background:var(--card-bg); color:var(--text); border:1px solid var(--card-border); border-radius:5px; }
 .appearance-popover p { margin:6px 0 10px; font-size:11px; color:var(--text-dim); }
+/* Keep the running standalone version visible when an offline shell is older. */
+.brand .app-version { font-size: 10px; font-weight: 400; opacity: .65; }

@@ -99,7 +99,7 @@ try {
     const [chooser]=await Promise.all([page.waitForEvent('filechooser'),page.getByRole('button',{name:'打开',exact:true}).click()]);
     await chooser.setFiles({name:'routing.draft',mimeType:'application/octet-stream',buffer:Buffer.from(serializeBoard(file,{}))});
     await page.evaluate(()=>document.fonts.ready);
-    await page.waitForFunction(()=>document.querySelector('[data-edge-id="e_detour01"] .edge-path')?.getAttribute('d').includes(' L ')).catch(async error=>{
+    await page.waitForFunction(()=>document.querySelector('[data-edge-id="e_detour01"] .edge-path')?.getAttribute('d').includes(' C ')).catch(async error=>{
       console.log(await page.evaluate(()=>({path:document.querySelector('[data-edge-id="e_detour01"] .edge-path')?.getAttribute('d'),nodes:window.__state.file.nodes,cards:[...document.querySelectorAll('.node-card')].map(c=>({id:c.dataset.nodeId,w:getComputedStyle(c).width,h:getComputedStyle(c).height}))})));
       await page.screenshot({path:'artifacts/routing-failure.png'});throw error;
     });
@@ -110,7 +110,8 @@ try {
       const label=document.querySelector('[data-edge-id="e_detour01"] .edge-label').getBoundingClientRect(),r=card.getBoundingClientRect();
       return !(label.x<r.right&&label.right>r.x&&label.y<r.bottom&&label.bottom>r.y);
     });
-    assert.ok(clear,'绘制的圆角路径及说明避开实际备注外框');
+    assert.ok(clear,'绘制的平滑曲线及说明避开实际备注外框');
+    assert.doesNotMatch(await page.locator('[data-edge-id="e_detour01"] .edge-path').getAttribute('d'),/ [LQ] /,'曲线绕障不回退成折线');
     await page.screenshot({path:`artifacts/routed-arrow-${zoom}.png`});
   }
   assert.deepEqual(errors,[]);

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { type EdgeRouting, type EdgeStroke, type NodeShape, type Op } from '../model';
 import type { EditorApi } from './store';
+import { centeredShapeOps } from './shapeChange';
 
 const shapes: [NodeShape, string][] = [['card','普通卡片'],['rectangle','步骤矩形'],['diamond','判断菱形'],['pill','起止圆角']];
 export function AppearanceControls({ editor }: { editor: EditorApi }) {
@@ -27,8 +28,10 @@ export function AppearanceControls({ editor }: { editor: EditorApi }) {
   const disabled = state.replay.active || !!state.editingId;
   const common = <T,>(values: T[]) => values.every(v => v === values[0]) ? values[0] : '__mixed__';
   const setShape = (shape: NodeShape) => {
-    const ops: Op[] = nodes.filter(n => (n.shape ?? 'card') !== shape).map(n => ({op:'setNodeShape',nodeId:n.id,before:null,after:{shape:shape === 'card' ? null : shape}}));
-    if (ops.length) commit('设置卡片外形',ops);
+    try{
+      const ops=centeredShapeOps(nodes,shape);
+      if(ops.length)commit('设置卡片外形',ops);
+    }catch(error){editor.dispatch({type:'commitError',message:error instanceof Error?error.message:String(error)});}
   };
   const setEdge = (key: 'routing' | 'stroke', value: EdgeRouting | EdgeStroke | '') => {
     const ops: Op[] = edges.filter(e => (e[key] ?? '') !== value).map(e => ({op:'setEdgeStyle',edgeId:e.id,before:null,

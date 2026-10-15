@@ -7,10 +7,25 @@ it('routes around a card between endpoints without changing nodes or relations',
     const nodes = [card(edge.from, 0, 0), card(edge.to, 500, 0), card('n_block01', 240, -40, 120, 150)];
     const before = structuredClone(nodes), g = edgeGeometry(edge, nodes, {})!;
     expect(g.routed).toBe(true);
+    expect(g.d).toContain(' C ');
+    expect(g.d).not.toMatch(/ [LQ] /);
     const obstacle = { x: 230, y: -50, w: 140, h: 170 };
     expect(g.points.slice(1).some((p, i) => segmentTouchesRect(g.points[i], p, obstacle))).toBe(false);
     expect(nodes).toEqual(before);
     expect(edgeGeometry(edge, nodes, {})!.d).toBe(g.d);
+});
+it('free detours remain visibly different from orthogonal flow paths and have continuous tangents',()=>{
+    const nodes=[card(edge.from,0,0),card(edge.to,500,0),card('n_block01',240,-40,120,150)];
+    const free=edgeGeometry({...edge,routing:'curve'},nodes,{})!,flow=edgeGeometry({...edge,routing:'orthogonal'},nodes,{})!;
+    expect(free.routed).toBe(true);expect(free.d).not.toMatch(/ [LQ] /);
+    expect(flow.d).toContain(' L ');expect(flow.d).not.toContain(' C ');
+    expect(free.d).not.toBe(flow.d);
+    const segments=[...free.d.matchAll(/ C ([\d.e+-]+) ([\d.e+-]+), ([\d.e+-]+) ([\d.e+-]+), ([\d.e+-]+) ([\d.e+-]+)/g)].map(m=>m.slice(1).map(Number));
+    expect(segments.length).toBeGreaterThan(1);
+    for(let i=1;i<segments.length;i++){
+        const p=segments[i-1],q=segments[i],ax=p[4]-p[2],ay=p[5]-p[3],bx=q[0]-p[4],by=q[1]-p[5];
+        expect(Math.abs(ax*by-ay*bx)).toBeLessThan(1e-7);expect(ax*bx+ay*by).toBeGreaterThan(0);
+    }
 });
 it('uses visible caption dimensions and updates the route when an obstacle moves', () => {
     const nodes = [card(edge.from, 0, 0), card(edge.to, 500, 0), card('n_block01', 200, 90)];

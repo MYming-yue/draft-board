@@ -446,6 +446,8 @@ export function NodeCard(p: NodeCardProps) {
       }}
       data-node-id={node.id}
       data-node-shape={shape}
+      data-shape-base-width={!isImage ? outerW : undefined}
+      data-shape-fixed-height={!isImage && formulaBox && !hasFormulaCaption ? formulaBox.h : undefined}
       onClick={(e) => {
         if (e.ctrlKey && (e.target as HTMLElement).closest("a")) e.preventDefault();
       }}

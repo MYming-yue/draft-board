@@ -218,6 +218,37 @@ function roundedPath(path: Point[]): {
     points.push(last);
     return { d, points };
 }
+/** Smooth tangents at every waypoint; unlike flow routing there are no line/elbow segments. */
+function curvedDetour(path: Point[], obstacles: Rect[]): {d:string;points:Point[]} | null {
+    const unit=(a:Point,b:Point)=>{const length=Math.hypot(b.x-a.x,b.y-a.y);return {x:(b.x-a.x)/(length||1),y:(b.y-a.y)/(length||1),length};};
+    const start=unit(path[0],path[1]),end=unit(path.at(-2)!,path.at(-1)!);
+    // Omit routing-grid port stubs when a broad arc can reach the clearance lane safely.
+    // This avoids a small outward hook before every detour.
+    const variants=path.length>=6?[path.filter((_,i)=>i!==1&&i!==path.length-2),path]:[path];
+    for (const waypoints of variants) for (const strength of [.55,.3,.12,.03]) {
+        const tangent=waypoints.map((p,i)=>{
+            if(i===0){const q=waypoints[1],length=Math.min(unit(p,q).length/3,Math.max(0,(q.x-p.x)*start.x+(q.y-p.y)*start.y)/2);return{x:start.x*length,y:start.y*length};}
+            if(i===waypoints.length-1){const q=waypoints[i-1],length=Math.min(unit(q,p).length/3,Math.max(0,(p.x-q.x)*end.x+(p.y-q.y)*end.y)/2);return{x:end.x*length,y:end.y*length};}
+            const a=unit(waypoints[i-1],p),b=unit(p,waypoints[i+1]),x=a.x+b.x,y=a.y+b.y,length=Math.hypot(x,y)||1;
+            const dx=x/length,dy=y/length;
+            let reach=Math.min(a.length,b.length)*strength;
+            for(const q of [waypoints[i-1],waypoints[i+1]]){
+                if(Math.abs(dx)>1e-9&&Math.abs(p.x-q.x)>1e-9)reach=Math.min(reach,Math.abs(p.x-q.x)/Math.abs(dx)/2);
+                if(Math.abs(dy)>1e-9&&Math.abs(p.y-q.y)>1e-9)reach=Math.min(reach,Math.abs(p.y-q.y)/Math.abs(dy)/2);
+            }
+            return{x:dx*reach,y:dy*reach};
+        });
+        let d=`M ${waypoints[0].x} ${waypoints[0].y}`;
+        const points=[waypoints[0]];
+        for(let i=1;i<waypoints.length;i++){
+            const a=waypoints[i-1],b=waypoints[i],c1={x:a.x+tangent[i-1].x,y:a.y+tangent[i-1].y},c2={x:b.x-tangent[i].x,y:b.y-tangent[i].y};
+            d+=` C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
+            points.push(...curve([a,c1,c2,b]).slice(1));
+        }
+        if(points.slice(1).every((p,i)=>clear(points[i],p,obstacles)))return{d,points};
+    }
+    return null;
+}
 function decorate(g: EdgeGeom, e: BoardEdge, rects: Rect[]): EdgeGeom {
     if (!e.label)
         return g;
@@ -261,14 +292,14 @@ export function edgeGeometry(e: BoardEdge, nodes: BoardNode[], heights: Record<s
     const others = nodes.filter(n => n !== from && n !== to).map(rect), expanded = others.map(r => expand(r, CLEARANCE));
     let routed = false;
     if (points.slice(1).some((p, i) => !clear(points[i], p, expanded))) {
-        const path = route(rf, rt, others, reciprocal && e.from > e.to ? 32 : CLEARANCE);
-        if (path) {
-            const rounded = roundedPath(path);
-            points = rounded.points;
-            fromPt = path[0];
-            toPt = path.at(-1)!;
-            d = rounded.d;
-            routed = true;
+        const extra=reciprocal && e.from > e.to ? 20 : 0;
+        for(const gap of e.routing==='orthogonal'?[CLEARANCE+extra]:[48+extra,CLEARANCE+extra]){
+            const path=route(rf,rt,others,gap);
+            if(!path)continue;
+            const detour=e.routing==='orthogonal'?roundedPath(path):curvedDetour(path,[...expanded,rf,rt]);
+            if(!detour)continue;
+            points=detour.points;fromPt=path[0];toPt=path.at(-1)!;d=detour.d;routed=true;
+            break;
         }
     }
     // Arc-length midpoint also works for detours with unequal segment lengths.

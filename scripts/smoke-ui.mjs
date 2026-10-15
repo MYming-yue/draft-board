@@ -34,6 +34,17 @@ await new Promise((resolvePromise, reject) => {
 
 const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+async function waitForCoreEditor() {
+  try { await page.waitForSelector('.node-editor:not(.formula-caption-editor)'); }
+  catch (error) {
+    await page.screenshot({ path: 'artifacts/core-editor-timeout.png' });
+    console.error('Core editor timeout', await page.evaluate(() => ({
+      editing: window.__state?.editingId, selection: window.__state?.selection,
+      view: window.__state?.file.board.view, error: window.__state?.saveError,
+    })));
+    throw error;
+  }
+}
 page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
 page.on("console", (m) => {
   if (m.type() === "error") errors.push("console: " + m.text());
@@ -124,7 +135,7 @@ await page.waitForTimeout(100);
 
 // 步骤 1：双击空白创建中心卡并输入
 await page.mouse.dblclick(640, 400);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 const ed = page.locator(".node-editor:not(.formula-caption-editor)");
 await ed.click();
 await ed.pressSequentially("# 中心问题\n如何提高复习效率？", { delay: 5 });
@@ -135,13 +146,13 @@ await page.waitForTimeout(100); // 让 ResizeObserver 将阅读态尺寸交给�
 
 // 步骤 2：Tab 连续建两层子卡（三层分支）
 await page.keyboard.press("Tab"); // 第一层
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("思路一：**间隔重复**", { delay: 5 });
 await page.keyboard.press("Control+Enter");
 await page.waitForFunction(() => [...document.querySelectorAll('.node-card')].every(el => el.getBoundingClientRect().height < 150));
 await page.waitForTimeout(100);
 await page.keyboard.press("Tab"); // 在第一层子卡上再 Tab → 第二层
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("按 $遗忘曲线$ 安排", { delay: 5 });
 await page.keyboard.press("Control+Enter");
 const cardCount = await page.locator(".node-card").count();
@@ -224,7 +235,7 @@ ok("PNG 导出触发下载", download.suggestedFilename().endsWith(".png"));
 // ---- 回归：用户报告「卡片没办法删除或者修改」（真实按键路径） ----
 // R1：建卡 → 单击选中 → Delete 删除
 await page.mouse.dblclick(300, 620);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("待删除的卡", { delay: 5 });
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
@@ -266,7 +277,7 @@ await page.waitForTimeout(150);
 await page.keyboard.press("Escape");
 const imeCard = await page.locator(".node-card", { hasText: "改过的内容XYZ" }).boundingBox();
 await page.mouse.dblclick(imeCard.x + imeCard.width / 2, imeCard.y + imeCard.height / 2);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 const cdp = await page.context().newCDPSession(page);
 try {
   await cdp.send("Input.imeSetComposition", { text: "中文", selectionStart: 2, selectionEnd: 2 });
@@ -281,7 +292,7 @@ try {
 // ---- 回归：Issue 1 连续创建叠卡 ----
 // 多行根卡 + 连续 3 次 Tab（子卡链）+ 3 次 Shift+Enter（同级顺延），7 卡两两不重叠且间距 ≥8
 await page.mouse.dblclick(1050, 720);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("避让根\n第二行\n第三行", { delay: 3 });
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
@@ -436,7 +447,7 @@ ok("全部箭头头部在目标卡边框外侧且贴边", arrowsOk);
 
 // ---- 回归：本批 Issue 1 同级卡自动继承父边 ----
 await page.mouse.dblclick(60, 700);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("继承A", { delay: 3 });
 await page.keyboard.press("Control+Enter");
 await page.keyboard.press("Tab"); // 继承B 挂到 A 下
@@ -463,7 +474,7 @@ ok(
 );
 // 无父卡 Shift+Enter → 独立卡不建边
 await page.mouse.dblclick(60, 780);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("无父C", { delay: 3 });
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(150);
@@ -482,7 +493,7 @@ ok("无父卡 Shift+Enter 建独立卡不建边", noParentInfo.edgeCount === edg
 
 // ---- 回归：本批 Issue 2 文本卡自由比例缩放 + min-height 不裁切 ----
 await page.mouse.dblclick(640, 500);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("缩放目标", { delay: 3 });
 await page.getByRole("textbox", { name: "卡片备注", exact: true }).fill("用于验证备注宽度与主体独立缩放。");
 await page.keyboard.press("Control+Enter");
@@ -535,7 +546,7 @@ await page.mouse.move(se3.x + se3.width / 2 + 0, se3.y + se3.height / 2 + 40, { 
 await page.mouse.up();
 await page.waitForTimeout(200);
 await page.mouse.dblclick(rszBox.x + rszBox.width / 2, rszBox.y + rszBox.height / 2);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 const longText = Array.from({ length: 12 }, (_, i) => `第${i + 1}行长文字内容`).join("\n");
 await page.locator(".node-editor:not(.formula-caption-editor)").fill(longText);
 await page.keyboard.press("Control+Enter");
@@ -594,7 +605,7 @@ ok("caption 写入 image 节点 markdown 字段", await page.evaluate((id) => {
 
 // ---- 回归：本批 Issue 4 插入工具条 ----
 await page.mouse.dblclick(820, 500);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 ok("编辑态出现插入工具条", (await page.locator(".insert-bar").count()) === 1);
 await page.locator(".node-editor:not(.formula-caption-editor)").fill("普通");
 await page.keyboard.press("Home");
@@ -684,11 +695,11 @@ const edgeBetween = (fromMd, toMd, kind) =>
 // 路径甲：树父子同级继承
 const spA = await ensureSpot();
 await page.mouse.dblclick(spA.x, spA.y);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("甲A");
 await page.keyboard.press("Control+Enter");
 await page.keyboard.press("Tab");
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("甲B");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
@@ -696,7 +707,7 @@ await page.waitForTimeout(200);
 await page.locator(".node-card", { hasText: "甲B" }).first().click();
 await page.waitForTimeout(150);
 await page.keyboard.press("Shift+Enter");
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("甲B1");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
@@ -705,13 +716,13 @@ ok("路径甲：B1 挂同父 A→B1（parentChild）", await edgeBetween("甲A",
 // 路径乙：手动 association 箭头后 Shift+Enter 复制入向关联
 const spB = await ensureSpot();
 await page.mouse.dblclick(spB.x, spB.y);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("乙A");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(150);
 const spB2 = await ensureSpot();
 await page.mouse.dblclick(spB2.x, spB2.y);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("乙B");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
@@ -731,7 +742,7 @@ ok("路径乙：association 乙A→乙B 已建", await edgeBetween("乙A", "乙B
 await page.locator(`[data-node-id="${yiIds["乙B"]}"]`).click();
 await page.waitForTimeout(150);
 await page.keyboard.press("Shift+Enter");
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("乙B1");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
@@ -750,21 +761,21 @@ ok(
 // 路径丙：高频连续流——Tab 建子后连按两次 Shift+Enter
 const spC = await ensureSpot();
 await page.mouse.dblclick(spC.x, spC.y);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("丙A");
 await page.keyboard.press("Control+Enter");
 await page.keyboard.press("Tab");
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("丙B");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
 await page.keyboard.press("Shift+Enter");
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("丙B1");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
 await page.keyboard.press("Shift+Enter");
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("丙B2");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(200);
@@ -830,7 +841,7 @@ const formulaWrap = (id) =>
 
 const spF = await ensureSpot();
 await page.mouse.dblclick(spF.x, spF.y);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("$$\\frac{a}{b}$$");
 await page.keyboard.press("Control+Enter");
 await page.waitForTimeout(300);
@@ -923,7 +934,7 @@ ok(
 // 混合内容卡：框变字号不变
 const spM = await ensureSpot();
 await page.mouse.dblclick(spM.x, spM.y);
-await page.waitForSelector(".node-editor:not(.formula-caption-editor)");
+await waitForCoreEditor();
 await page.keyboard.insertText("说明文字 $x^2$ 结尾");
 await page.getByRole("textbox", { name: "卡片备注", exact: true }).fill("混合公式卡的独立备注。");
 await page.keyboard.press("Control+Enter");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyOps, commitStep, contentEqual, createEmptyBoard, duplicateGroup, invertOps, parseBoard, replayTo, serializeBoard, stripHistory, validateNodeShape, type BoardEdge, type BoardFile, type BoardNode, type Op } from './index';
+import { applyBatch, applyOps, commitStep, contentEqual, createEmptyBoard, duplicateGroup, invertOps, parseBoard, replayTo, serializeBoard, stripHistory, validateEdgeShape, validateNodeShape, type BoardEdge, type BoardFile, type BoardNode, type Op } from './index';
 import { edgeGeometry, segmentTouchesRect } from './edgeRouting';
 const node=(id:string,x=0,y=0):BoardNode=>({id,type:'text',markdown:'条件是否满足？',caption:'依据保留在备注中。',x,y,w:140,h:90});
 const a=node('n_flow001'),b=node('n_flow002',300,300);
@@ -7,6 +7,44 @@ const edge:BoardEdge={id:'e_flow001',kind:'association',from:a.id,to:b.id,direct
 function commit(file:BoardFile,ops:Op[]){const r=commitStep(file,'外形变化','agent',ops);if(!r.ok)throw new Error(r.error.message);return r;}
 function fixture(){return commit(createEmptyBoard(),[{op:'addNode',node:a,before:null,after:a},{op:'addNode',node:b,before:null,after:b},{op:'addEdge',edge,before:null,after:edge}]).state;}
 describe('flow appearance is optional, portable and reversible',()=>{
+  it('flowing dashes survive agent batches, reversing direction, copy, undo/redo and portable history',()=>{
+    const old=fixture();
+    const batch={batchVersion:'1.0' as const,boardId:old.board.id,baseContentVersion:old.board.contentVersion,actor:'agent' as const,label:'流动关系',ops:[
+      {op:'setEdgeStyle' as const,edgeId:edge.id,before:{routing:null,stroke:'solid' as const},after:{routing:'curve' as const,stroke:'flowing-dashed' as const}},
+    ]};
+    const result=applyBatch(old,batch);expect(result.result.ok).toBe(true);if(!result.file)throw new Error('batch failed');
+    const flow=result.file;
+    expect(flow.edges[0]).toEqual({...edge,routing:'curve',stroke:'flowing-dashed'});
+    expect(flow.history.at(-1)!.ops[0].before).toEqual({routing:null,stroke:null});
+    expect(flow.board.contentVersion).toBe(old.board.contentVersion+1);
+    expect(flow.history).toHaveLength(old.history.length+1);
+    expect(flow.formatVersion).toBe('3.0');
+    for(const f of [flow,stripHistory(flow)])expect(parseBoard(serializeBoard(f,{})).file).toEqual(f);
+    expect(contentEqual(replayTo(flow),flow)).toBe(true);
+    let serial=0;
+    const copies=duplicateGroup(flow,[a.id,b.id],kind=>`${kind==='edge'?'e':'n'}_flowcopy${++serial}`);
+    expect(copies.filter(o=>o.op==='addEdge')[0].edge.stroke).toBe('flowing-dashed');
+    const restored=commit(flow,invertOps(flow.history.at(-1)!.ops)).state;
+    expect(restored.edges).toEqual(old.edges);
+    const redone=commit(restored,batch.ops).state;expect(redone.edges).toEqual(flow.edges);
+    const reversed=commit(redone,[{op:'updateEdge',edgeId:edge.id,before:null,after:{from:b.id,to:a.id,directed:true,label:'返回'}}]).state;
+    expect(reversed.edges[0]).toEqual({...flow.edges[0],from:b.id,to:a.id,label:'返回'});
+    const undirected=commit(reversed,[{op:'updateEdge',edgeId:edge.id,before:null,after:{from:b.id,to:a.id,directed:false}}]).state;
+    expect(undirected.edges[0].stroke).toBe('flowing-dashed');
+    const added={...edge,id:'e_flowadd0',kind:'parentChild' as const,stroke:'flowing-dashed' as const};
+    expect(commit(old,[{op:'addEdge',edge:added,before:null,after:added}]).state.edges.at(-1)).toEqual(added);
+  });
+  it('unknown dash styles reject the whole operation and invalid files instead of accepting partial changes',()=>{
+    const f=fixture(),before=structuredClone(f);
+    for(const stroke of ['flow','animated',false,{},undefined]){
+      const bad=applyOps(f,[{op:'setEdgeStyle',edgeId:edge.id,before:null,after:{routing:'curve',stroke:'flowing-dashed'}},
+        {op:'setEdgeStyle',edgeId:edge.id,before:null,after:{routing:'curve',stroke}} as Op]);
+      expect(bad.ok).toBe(false);expect(f).toEqual(before);
+      expect(validateEdgeShape({...edge,stroke:stroke===undefined?'animated':stroke})).not.toBe(null);
+    }
+    const invalid=structuredClone(f);invalid.edges[0].stroke='animated' as never;
+    expect(()=>parseBoard(serializeBoard(invalid,{}))).toThrow(/stroke/);
+  });
   it('changes appearance without replacing identity, content or relation; undo/replay/copy/roundtrip preserve it',()=>{
     const old=fixture();
     const changed=commit(old,[{op:'setNodeShape',nodeId:a.id,before:{shape:'pill'},after:{shape:'diamond'}},{op:'setEdgeStyle',edgeId:edge.id,before:{routing:'orthogonal',stroke:'solid'},after:{routing:'orthogonal',stroke:'solid'}}]);

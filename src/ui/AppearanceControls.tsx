@@ -50,8 +50,9 @@ export function AppearanceControls({ editor }: { editor: EditorApi }) {
           <option value="__mixed__" disabled>多种画法</option><option value="">默认曲线</option><option value="curve">自由曲线</option><option value="orthogonal">流程折线</option>
         </select></label>
         <label>线条<select aria-label="线条样式" disabled={disabled} value={common(edges.map(e => e.stroke ?? ''))} onChange={e => setEdge('stroke',e.target.value as EdgeStroke | '')}>
-          <option value="__mixed__" disabled>多种线条</option><option value="">默认</option><option value="solid">实线</option><option value="dashed">虚线</option>
+          <option value="__mixed__" disabled>多种线条</option><option value="">默认</option><option value="solid">实线</option><option value="dashed">虚线</option><option value="flowing-dashed">流动虚线</option>
         </select></label>
+        {edges.some(e => e.stroke === 'flowing-dashed' && !e.directed) && <p>无箭头的连线保持静态虚线。</p>}
       </>}
       <p>改变呈现，保留核心、备注与关系。</p>
       <button type="button" onClick={() => setOpen(false)}>收起设置</button>

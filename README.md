@@ -7,7 +7,7 @@
 
 A local-first, editable whiteboard for notes, equations, and connected thinking. Built for people and coding agents to work on the same portable file.
 
-Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown、LaTeX 公式和图片组成卡片，用连线表达关系，在草稿成熟后继续整理，而不必一开始就决定文档的章节结构。当前为 **0.2.0 早期版本**，界面以简体中文为主，主要面向桌面 Chrome / Edge。
+Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown、LaTeX 公式和图片组成卡片，用连线表达关系，在草稿成熟后继续整理，而不必一开始就决定文档的章节结构。当前为 **0.2.3 早期版本**，界面以简体中文为主，主要面向桌面 Chrome / Edge。
 
 ## 为什么做这个项目
 
@@ -19,7 +19,7 @@ Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown�
 
 ## 现在可以做什么
 
-- 选中卡片／连线，通过“外形与连线”选择步骤矩形、判断菱形、起止圆角，以及实线／虚线、曲线／流程折线。菜单切换外形时固定整个可见外框中心；曲线绕障保持平滑，流程折线保留清楚的转折。
+- 选中卡片／连线，通过“外形与连线”选择步骤矩形、判断菱形、起止圆角，以及实线／虚线／流动虚线、曲线／流程折线。流动虚线沿箭头方向缓慢移动；无箭头、减少动态效果与 PNG 中保持静态。菜单切换外形时固定整个可见外框中心；曲线绕障保持平滑，流程折线保留清楚的转折。
 
 - 用矩形、椭圆或圆形集合表达卡片关系；成员可共享，支持整体移动、中轴对齐、网格排版和统一核心宽度。
 - 在无限画布上创建、移动、缩放和多选卡片，建立父子分支与普通关联线。
@@ -113,7 +113,7 @@ node node_modules/playwright-core/cli.js install chromium
 npm run check
 ```
 
-`check` 会依次执行类型检查与构建、单元测试、CLI 回归和十一组真实浏览器检查。Linux 首次配置浏览器可使用 `install --with-deps chromium`。GitHub Actions 使用同一入口。
+`check` 会依次执行类型检查与构建、单元测试、CLI 回归和十二组真实浏览器检查。Linux 首次配置浏览器可使用 `install --with-deps chromium`。GitHub Actions 使用同一入口。
 
 ## 当前边界
 

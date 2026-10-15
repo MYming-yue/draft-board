@@ -10,7 +10,8 @@ export type NodeType = "text" | "image";
 export type NodeShape = "card" | "rectangle" | "diamond" | "pill";
 export const NODE_SHAPES: readonly NodeShape[] = ["card", "rectangle", "diamond", "pill"];
 export type EdgeRouting = "curve" | "orthogonal";
-export type EdgeStroke = "solid" | "dashed";
+export type EdgeStroke = "solid" | "dashed" | "flowing-dashed";
+export const EDGE_STROKES: readonly EdgeStroke[] = ["solid", "dashed", "flowing-dashed"];
 export type EdgeKind = "association" | "parentChild";
 export type Actor = "user" | "agent";
 
@@ -54,7 +55,7 @@ export interface BoardEdge {
   directed: boolean; // parentChild 恒为 true，方向 = 父→子
   label?: string;
   routing?: EdgeRouting; // 缺省保留曲线与自动避让。
-  stroke?: EdgeStroke; // 缺省 association 虚线、parentChild 实线。
+  stroke?: EdgeStroke; // 缺省 association 虚线、parentChild 实线；flowing-dashed 仅有向边流动。
 }
 
 export interface BoardAsset {

@@ -34,6 +34,11 @@ export async function exportBoardPng(fileName: string): Promise<void> {
   // 克隆并平移到 (0,0)
   const clone = world.cloneNode(true) as HTMLElement;
   clone.querySelectorAll(".formula-caption-button").forEach((button) => button.remove());
+  // Export a consistent static dash pattern, independent of the live animation phase.
+  clone.querySelectorAll<SVGElement>(".edge-flow-active").forEach((path) => {
+    path.style.animation = "none";
+    path.style.strokeDashoffset = "0";
+  });
   clone.style.transform = `translate(${-x0}px, ${-y0}px)`;
   clone.style.width = `${w}px`;
   clone.style.height = `${h}px`;

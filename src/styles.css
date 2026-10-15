@@ -617,7 +617,16 @@ body,
 .edge-assoc { stroke: var(--edge-assoc); stroke-dasharray: 6 4; }
 .edge-parent { stroke: var(--edge-parent); }
 .edge-stroke-solid { stroke-dasharray:none; }
-.edge-stroke-dashed { stroke-dasharray:6 4; }
+.edge-stroke-dashed, .edge-stroke-flowing-dashed { stroke-dasharray:6 4; }
+/* Paths always run from edge.from to edge.to; decreasing offset carries dashes toward the arrow. */
+.edge-flow-active { animation: edge-dash-flow 1.6s linear infinite; }
+@keyframes edge-dash-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -20; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-flow-active { animation: none; stroke-dashoffset: 0; }
+}
 .edge-selected { stroke: var(--edge-selected) !important; stroke-width: 2.6; }
 .edge-hit {
   fill: none;

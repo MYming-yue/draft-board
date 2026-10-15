@@ -63,6 +63,7 @@ export function EdgeLayer(p: EdgeLayerProps) {
             isParent ? "edge-parent" : "edge-assoc",
             isSel ? "edge-selected" : "",
             e.stroke ? `edge-stroke-${e.stroke}` : '',
+            e.stroke === 'flowing-dashed' && e.directed ? 'edge-flow-active' : '',
           ].join(" ");
           const marker = isSel
             ? isParent

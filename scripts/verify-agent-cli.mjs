@@ -47,7 +47,20 @@ try {
   assert.equal(invalid.error.code, "E_UNKNOWN_NODE");
   assert.equal(invalid.error.opIndex, 1);
   assert.deepEqual(readFileSync(draft), committed, "later failure must roll back the entire batch");
-  console.log("CLI VERIFY PASS: create, validate, apply, replay, version conflict, atomic rejection");
+  batch.baseContentVersion=file.board.contentVersion;
+  batch.ops=[{op:'setEdgeStyle',edgeId:file.edges[0].id,before:null,after:{routing:'orthogonal',stroke:'flowing-dashed'}}];
+  writeFileSync(batchPath,JSON.stringify(batch));
+  assert.equal(cli(['validate',draft,batchPath]).ok,true);
+  assert.deepEqual(readFileSync(draft),committed,'flowing dash validation must not write');
+  assert.equal(cli(['apply',draft,batchPath]).ok,true);
+  const flowingBytes=readFileSync(draft),flowing=parseBoard(flowingBytes).file;
+  assert.equal(flowing.edges[0].stroke,'flowing-dashed');
+  assert.ok(contentEqual(replayTo(flowing),flowing));
+  batch.baseContentVersion=flowing.board.contentVersion;batch.ops[0].after.stroke='animated';
+  writeFileSync(batchPath,JSON.stringify(batch));
+  assert.equal(cli(['apply',draft,batchPath],1).error.code,'E_SCHEMA');
+  assert.deepEqual(readFileSync(draft),flowingBytes,'unknown strokes leave file bytes intact');
+  console.log("CLI VERIFY PASS: create, validate, apply, replay, version conflict, atomic rejection and portable flowing dashes");
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

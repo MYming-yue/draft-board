@@ -72,6 +72,9 @@ Linux 环境缺少系统库时使用 `install --with-deps chromium`。脚本默�
 | `npm run smoke:collections` | 集合共享、拖动与撤销、成员维护、排版、输入法、缩放、文件往返和 PNG；端口 4191 |
 | `npm run smoke:pwa` | manifest、模拟 launchQueue 打开 / 回写、缓存后离线重载 |
 | `npm run smoke:sync` | 同一磁盘草稿经 CLI 更新后自动显示、改动标记与整轮撤销，未提交输入／回放／指针操作保护，分叉副本和保存冲突；端口 4193 |
+| `npm run smoke:flow` | 流程外形、备注与公式、分叉／反馈路径、样式撤销、文件与 PNG；端口 4194 |
+| `npm run smoke:appearance` | 外形切换的中心锚定、多选单步、平滑曲线与折线绕障区别、缩放；端口 4195 |
+| `npm run smoke:flowing` | 流动虚线沿箭头方向、反向／反馈边、无向静态、减少动态效果、保存与静态 PNG；端口 4196 |
 
 `npm run check` 是上述命令的顺序组合，CI 执行同一命令。纯文档 PR 可以注明未运行代码测试及原因，但仍需检查相对链接、示例命令与实现一致。测试环境缺失或命令失败时，明确记录阻塞与日志，不得声称通过、删断言或跳过失败来制造绿色结果。
 

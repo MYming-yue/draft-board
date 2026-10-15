@@ -1,6 +1,6 @@
 # Draft Board 公开规格
 
-应用版本：0.2.2。无集合的新文件 `formatVersion` 为 1.0，首次集合操作后至少升级为 2.0，使用流程外形／线条后为 3.0（不自动降级）；批次 `batchVersion` 仍为 1.0，应用版本不等同于文件格式版本。
+应用版本：0.2.3。无集合的新文件 `formatVersion` 为 1.0，首次集合操作后至少升级为 2.0，使用流程外形／线条后为 3.0（不自动降级）；批次 `batchVersion` 仍为 1.0，应用版本不等同于文件格式版本。
 
 本文随源码维护，描述当前 `.draft` 格式、Agent 批次和编辑行为。类型的精确载荷定义见 [`src/model/types.ts`](../src/model/types.ts)，运行时校验见 [`validate.ts`](../src/model/validate.ts)。当前没有单独发布可供通用 JSON Schema 校验器加载的 schema 文件；不能把 TypeScript 类型检查当作运行时输入校验。
 
@@ -63,7 +63,7 @@
 | `removeEdge` | `edgeId` | null |
 | `updateEdge` | `edgeId` | `{from,to,label?,directed}` |
 | `setNodeShape` | `nodeId` | `{shape: card/rectangle/diamond/pill或null}` |
-| `setEdgeStyle` | `edgeId` | `{routing: curve/orthogonal或null, stroke: solid/dashed或null}` |
+| `setEdgeStyle` | `edgeId` | `{routing: curve/orthogonal或null, stroke: solid/dashed/flowing-dashed或null}` |
 | `reparent` | `nodeId` | `{parentId: string或null}` |
 
 ### 2-D. Agent 批次
@@ -366,7 +366,7 @@ AI 通过读取与应用批次两个白板工具主动维护当前草稿；复�
 
 ### 9-A. 字段、操作与兼容性
 
-文本／公式卡可选 `shape: card|rectangle|diamond|pill`，缺省等于 card。rectangle 为步骤矩形，diamond 为判断菱形，pill 为起止圆角；图片保持原外观，不接受 shape。边可选 `routing: curve|orthogonal`、`stroke: solid|dashed`，缺省沿用原曲线与避让、association 虚线／parentChild 实线。kind、方向、端点与标签仍表达原有关系，不由视觉自动改成流程语义。
+文本／公式卡可选 `shape: card|rectangle|diamond|pill`，缺省等于 card。rectangle 为步骤矩形，diamond 为判断菱形，pill 为起止圆角；图片保持原外观，不接受 shape。边可选 `routing: curve|orthogonal`、`stroke: solid|dashed|flowing-dashed`，缺省沿用原曲线与避让、association 虚线／parentChild 实线。kind、方向、端点与标签仍表达原有关系，不由视觉自动改成流程语义。
 
 | op | 标识 | before / after |
 | --- | --- | --- |
@@ -398,3 +398,15 @@ addNode／addEdge 可直接携带新字段；updateEdge 修改端点／标签时
 新增 smoke:appearance（4195）比较真实浏览器中的曲线／折线绕障，并验证普通文字、长备注、带备注／纯公式、多选、结构视图、100%／70% 缩放下的中心、单步撤销重做、ZIP 与 PNG。曲线模型测试检查绕障、确定性、线段类型与相邻贝塞尔切线连续；纳入完整 check。
 
 2026-10-15 用户在独立桌面版 0.2.2 完成本机验收，确认自由曲线绕障的视觉区别与切换外形时整个中心点固定通过。
+
+### 9-E. 沿箭头方向流动的虚线（0.2.3，2026-10-15）
+
+“外形与连线 → 线条”增加“流动虚线”，对应 `stroke: flowing-dashed`。支持曲线、绕障曲线与流程折线、父子边和关联边。有向边的虚线从 from 沿完整路径流向 to；向左、向上或反馈绕行同样沿箭头方向。箭头与关系说明保持静止，流动只是阅读方向提示，不表示执行或进度。无向边保留该样式字段，但显示静态虚线并在菜单提示；恢复有向后自动流动，不因样式变更修改 directed、端点或其他内容。
+
+动画为 6／4 世界单位虚线，1.6 秒线性移动 20 世界单位并循环；由 CSS 呈现，不计时修改模型、不新增历史或触发文件同步。缺省、实线及原虚线保持静态。系统 `prefers-reduced-motion: reduce` 时显示静态虚线，保留样式选择；设置恢复后自动恢复流动。PNG 在克隆中关闭动画并固定相位为 0，导出后画布继续流动。
+
+样式经既有 setEdgeStyle／addEdge 提交，多选共用一个历史步骤，相同值不提交；可撤销、重做、回放、复制、保存与重开。格式仍为 3.0，batchVersion 仍为 1.0；仅扩充 stroke 枚举。旧文件读取及缺省表现不变；不认识此枚举的旧 3.0 程序会返回 E_SCHEMA（包含操作历史的文件也可能被拒绝），不会静默丢失样式。
+
+模型与 CLI 回归验证枚举接收／拒绝、批次原子性、历史、复制和存档；`smoke:flowing`（4196）验证实际 SVG 方向与动画相位、双向与反馈线、静态缺省／无向边、多选单步、撤销重做、保存重开、回放只读、减少动态效果、缩放与静态 PNG。纳入完整 check。
+
+开发验证：Node 26.3.0、Chrome 155.0.8059.40 下完整 `npm run check` 通过（142 项单测、CLI 与 12 组浏览器检查）；另在独立桌面版安装源 `http://127.0.0.1:4188/` 验证实际运行版本 0.2.3 及上述流动虚线交互。等待用户本机验收。

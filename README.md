@@ -7,7 +7,7 @@
 
 A local-first, editable whiteboard for notes, equations, and connected thinking. Built for people and coding agents to work on the same portable file.
 
-Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown、LaTeX 公式和图片组成卡片，用连线表达关系，在草稿成熟后继续整理，而不必一开始就决定文档的章节结构。当前为 **0.2.3 早期版本**，界面以简体中文为主，主要面向桌面 Chrome / Edge。
+Draft Board 是一个本地优先的无限画布工具。你可以把 Markdown、LaTeX 公式和图片组成卡片，用连线表达关系，在草稿成熟后继续整理，而不必一开始就决定文档的章节结构。当前为 **0.2.4-dev.1 开发预览**，界面以简体中文为主，主要面向桌面 Chrome / Edge。嵌入 DSH 时提供隔离候选渲染与共享几何检查，供宿主在 AI 批次落盘前检查卡片、集合及连线；独立版手动编辑不强制限制布局。
 
 ## 为什么做这个项目
 

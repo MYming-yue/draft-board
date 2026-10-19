@@ -33,3 +33,8 @@ it('detects a crossing exactly at a sampled curve midpoint',()=>{
     {id:'e_sample02',kind:'association',from:'n_sample03',to:'n_sample04',directed:true}];
   expect(readabilityConflicts(file,{}).some(c=>c.kind==='edge-crossing')).toBe(true);
 });
+it('allows ordinary tree curves to meet at a common port',()=>{
+  const file=board([card('n_join001',300,0),card('n_join002',0,400),card('n_join003',600,400)]);
+  file.edges=file.nodes.slice(1).map((n,i)=>({id:`e_join00${i}`,kind:'parentChild',from:file.nodes[0].id,to:n.id,directed:true}));
+  expect(readabilityConflicts(file,{}).filter(c=>c.kind==='edge-crossing' || c.kind==='edge-overlap')).toEqual([]);
+});

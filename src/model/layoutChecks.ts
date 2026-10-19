@@ -110,11 +110,22 @@ export function readabilityConflicts(file: BoardFile, geometry: LayoutGeometry, 
         if (a.label && b.label && overlaps(a.label,b.label,4)) issue("label-overlap");
         if ((a.label && b.g.points.slice(1).some((p,k)=>segmentTouchesRect(b.g.points[k],p,a.label!))) ||
             (b.label && a.g.points.slice(1).some((p,k)=>segmentTouchesRect(a.g.points[k],p,b.label!)))) issue("edge-label");
-        // Common endpoints may deliberately share a flow trunk. Their labels still must be distinct.
-        if (common) continue;
+        // Orthogonal flow branches may deliberately share a trunk. Curves may
+        // meet at the same port, but must not cross again far from that card.
+        if (common && a.e.routing==='orthogonal' && b.e.routing==='orthogonal') continue;
+        const joins=common ? file.nodes.filter(n=>[a.e.from,a.e.to].includes(n.id) && [b.e.from,b.e.to].includes(n.id)).map(n=>({x:n.x-16,y:n.y-16,w:(geometry[n.id]?.w ?? n.w)+32,h:(geometry[n.id]?.h ?? n.h ?? 120)+32})) : [];
+        const inside=(p:Point)=>joins.some(r=>p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h);
         let kind: "edge-crossing" | "edge-overlap" | null=null;
         for (let x=1;x<a.g.points.length && kind!=="edge-overlap";x++) for(let y=1;y<b.g.points.length;y++) {
-            const hit=intersection(a.g.points[x-1],a.g.points[x],b.g.points[y-1],b.g.points[y]);
+            const p=a.g.points[x-1],q=a.g.points[x],r=b.g.points[y-1],s=b.g.points[y];
+            const hit=intersection(p,q,r,s);
+            if(hit && common) {
+                const dx=q.x-p.x,dy=q.y-p.y,ex=s.x-r.x,ey=s.y-r.y,det=dx*ey-dy*ex;
+                if(Math.abs(det)>1e-9) {
+                    const t=((r.x-p.x)*ey-(r.y-p.y)*ex)/det;
+                    if(inside({x:p.x+t*dx,y:p.y+t*dy}))continue;
+                } else if([p,q,r,s].every(inside))continue;
+            }
             if (hit) {kind=hit;if(hit==="edge-overlap")break;}
         }
         if(kind)issue(kind);

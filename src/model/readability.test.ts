@@ -27,3 +27,9 @@ it('keeps deliberate shared flow trunks while rejecting colliding labels',()=>{
   expect(issues.some(c=>c.kind==='edge-overlap' || c.kind==='edge-crossing')).toBe(false);
   expect(issues.some(c=>c.kind==='label-overlap')).toBe(true);
 });
+it('detects a crossing exactly at a sampled curve midpoint',()=>{
+  const file=board([card('n_sample01',300,-400),card('n_sample02',300,404),card('n_sample03',-400,0),card('n_sample04',800,0)]);
+  file.edges=[{id:'e_sample01',kind:'association',from:'n_sample01',to:'n_sample02',directed:true},
+    {id:'e_sample02',kind:'association',from:'n_sample03',to:'n_sample04',directed:true}];
+  expect(readabilityConflicts(file,{}).some(c=>c.kind==='edge-crossing')).toBe(true);
+});

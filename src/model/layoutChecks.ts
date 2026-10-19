@@ -82,7 +82,11 @@ function intersection(a: Point, b: Point, c: Point, d: Point): "edge-crossing" |
         const axis = Math.abs(b.x-a.x) >= Math.abs(b.y-a.y) ? "x" : "y";
         return Math.min(Math.max(a[axis],b[axis]), Math.max(c[axis],d[axis])) - Math.max(Math.min(a[axis],b[axis]),Math.min(c[axis],d[axis])) > 1 ? "edge-overlap" : null;
     }
-    return x*y < -1e-8 && z*w < -1e-8 ? "edge-crossing" : null;
+    // Include intersections at sampled vertices: a real crossing can land
+    // exactly on a curve's midpoint or on an orthogonal elbow.
+    const inBounds = Math.max(Math.min(a.x,b.x),Math.min(c.x,d.x)) <= Math.min(Math.max(a.x,b.x),Math.max(c.x,d.x))+1e-8 &&
+        Math.max(Math.min(a.y,b.y),Math.min(c.y,d.y)) <= Math.min(Math.max(a.y,b.y),Math.max(c.y,d.y))+1e-8;
+    return inBounds && x*y <= 1e-8 && z*w <= 1e-8 ? "edge-crossing" : null;
 }
 
 /** Strict integration check; existing offline layout planning keeps its original contract. */

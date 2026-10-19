@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { parseBoard, visibleEdges, type DraftBundle, type LayoutGeometry, type Rect } from "../model";
 import { NodeCard } from "./NodeCard";
 import { EdgeLayer } from "./EdgeLayer";
@@ -62,7 +62,8 @@ function Preview({bundle, report}:{bundle:DraftBundle;report:(value:Measurement)
 export function DshQualityPreview() {
   const [job,setJob]=useState<{id:string;before:DraftBundle;after:DraftBundle}|null>(null);
   const active=useRef<string|null>(null),measurements=useRef<{before?:Measurement;after?:Measurement}>({});
-  const reports=useRef({before:(m:Measurement)=>{measurements.current.before=m;},after:(m:Measurement)=>{measurements.current.after=m;}});
+  const beforeReport=useCallback((m:Measurement)=>{if(job && active.current===job.id)measurements.current.before=m;},[job?.id]);
+  const afterReport=useCallback((m:Measurement)=>{if(job && active.current===job.id)measurements.current.after=m;},[job?.id]);
   useEffect(()=>{
     let stopped=false,timer:ReturnType<typeof setTimeout>;
     const tick=async()=>{
@@ -77,9 +78,9 @@ export function DshQualityPreview() {
           active.current=null;measurements.current={};if(!stopped)setJob(null);
         }
       } catch { /* A transport error never becomes a successful measurement; the host times out safely. */ }
-      finally {if(!stopped)timer=setTimeout(tick,200);}
+      finally {if(!stopped)timer=setTimeout(tick,750);}
     };
     void tick();return ()=>{stopped=true;clearTimeout(timer);};
   },[]);
-  return job ? <><Preview key={job.id+'before'} bundle={job.before} report={reports.current.before}/><Preview key={job.id+'after'} bundle={job.after} report={reports.current.after}/></> : null;
+  return job ? <><Preview key={job.id+'before'} bundle={job.before} report={beforeReport}/><Preview key={job.id+'after'} bundle={job.after} report={afterReport}/></> : null;
 }

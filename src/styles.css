@@ -82,6 +82,35 @@ body,
   opacity: 0.4;
   cursor: default;
 }
+.history-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.toolbar .history-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  border-color: transparent;
+  flex-shrink: 0;
+}
+.history-button svg {
+  display: block;
+  flex-shrink: 0;
+}
+.history-button:focus-visible {
+  outline: 2px solid var(--selection);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .toolbar .history-button {
+    width: 44px;
+    height: 44px;
+  }
+}
 .sep {
   width: 1px;
   height: 20px;
@@ -706,3 +735,13 @@ body,
 .collection-controls { order: 1; }
 .collection-entry { display: flex; gap: 5px; align-items: center; }
 .collection-entry select { max-width: 150px; padding: 4px; border: 1px solid var(--card-border); border-radius: 5px; background: white; }
+/* File updates are part of the shared canvas, without a separate AI handoff. */
+.file-updates { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; background: #eff6ff; color: #1e40af; border-bottom: 1px solid #bfdbfe; font-size: 13px; }
+.file-updates > span { flex: 1 1 420px; line-height: 1.6; }
+.file-updates button { background: white; border: 1px solid #bfdbfe; border-radius: 5px; padding: 5px 9px; cursor: pointer; white-space: nowrap; }
+.file-updates button:disabled { opacity: .45; cursor: default; }
+.file-updates.conflict { color: #92400e; background: #fffbeb; border-color: #fcd34d; }
+.file-updates details { max-width: 100%; }
+.file-updates summary { cursor: pointer; }
+.file-updates ul { margin: 6px 0; padding-left: 20px; overflow-wrap: anywhere; }
+.node-card.external-changed { outline: 2px dashed #0d9488; outline-offset: 4px; }

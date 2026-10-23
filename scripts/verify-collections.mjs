@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
-import { launchBrowser } from "./browser.mjs";
+import { launchBrowser, prepareFixtureOpen } from "./browser.mjs";
 import { createEmptyBoard, commitStep, serializeBoard, parseBoard, contentEqual, replayTo } from "../dist-model/index.js";
 const port = 4191;
 const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], { stdio: "ignore" });
@@ -21,6 +21,7 @@ try {
   const created = commitStep(createEmptyBoard("集合回归"), "卡片", "user", ns.map(node => ({ op: "addNode", node, before: null, after: node })));
   assert.ok(created.ok);
   async function open(bytes) {
+    await prepareFixtureOpen(page);
     const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "打开", exact: true }).click()]);
     await chooser.setFiles({ name: "collections.draft", mimeType: "application/octet-stream", buffer: Buffer.from(bytes) });
   }

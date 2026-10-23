@@ -28,6 +28,28 @@ function commit(state: BoardFile, ops: Op[], label = "t"): BoardFile {
 }
 
 describe("B4 撤销与重做都进入历史（I5）", () => {
+  it("同批新增后修改及后续编辑不改写新增操作快照或既有历史", () => {
+    const node = textNode(N("a"));
+    const other = textNode(N("b"), 400, 0);
+    const edge: BoardEdge = { id: E("ab"), kind: "association", from: node.id, to: other.id, directed: true, label: "原关系" };
+    let state = commit(createEmptyBoard(), [
+      { op: "addNode", node, before: null, after: node },
+      { op: "updateNodeCaption", nodeId: node.id, before: null, after: { caption: "同批解释" } },
+      { op: "addNode", node: other, before: null, after: other },
+      { op: "addEdge", edge, before: null, after: edge },
+    ]);
+    const first = structuredClone(state.history);
+    const add = first[0].ops[0];
+    expect(add.op === "addNode" && add.node).toEqual(node);
+    state = commit(state, [
+      { op: "updateNodeText", nodeId: node.id, before: null, after: { markdown: "下一轮" } },
+      { op: "updateEdge", edgeId: edge.id, before: null, after: { from: node.id, to: other.id, directed: true, label: "新关系" } },
+    ]);
+    expect(state.history.slice(0, 1)).toEqual(first);
+    expect(replayTo(state, 1).nodes.find(n => n.id === node.id)?.markdown).toBe("");
+    expect(replayTo(state, 1).edges[0].label).toBe("原关系");
+    expect(contentEqual(replayTo(state), state)).toBe(true);
+  });
   it("3 步 → 撤销 1 步再重做 1 步 → 总 5 步，contentVersion 递增，状态还原", () => {
     let s = createEmptyBoard("t");
     s = commit(s, [{ op: "addNode", node: textNode(N("a")), before: null, after: textNode(N("a")) }], "建卡 a");

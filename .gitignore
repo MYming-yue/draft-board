@@ -18,3 +18,4 @@ scripts/repro-*.mjs
 scripts/verify-draft-open.mjs
 examples/batch-u6-words.json
 examples/batch-math-model.json
+examples/batch-navier-stokes.json

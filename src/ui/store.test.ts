@@ -1,5 +1,29 @@
 import { expect, it } from "vitest";
 import { editorReducer, initialEditorState } from "./store";
+import { commitStep } from "../model";
+import { verifyExternalUpdate } from "./externalChanges";
+
+it("外部批次保留视图和会话，整轮撤销，并拒绝过期更新覆盖编辑", () => {
+  let state = initialEditorState();
+  const node = { id: "n_agent01", type: "text" as const, markdown: "可编辑公式", x: 100, y: 100, w: 240 };
+  const result = commitStep(state.file, "添加与解释", "agent", [{ op: "addNode", node, before: null, after: node }, { op: "updateNodeCaption", nodeId: node.id, before: null, after: { caption: "解释" } }]);
+  if (!result.ok) throw new Error(result.error.message);
+  const changes = verifyExternalUpdate(state.file, result.state)!;
+  const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
+  state = editorReducer(state, { type: "setView", panX: 90, panY: 50, zoom: .75 });
+  const blocked = editorReducer(state, { type: "setEditing", id: node.id });
+  expect(editorReducer(blocked, { type: "receiveExternal", bundle: { file: result.state, blobs: {} }, stamp, changes })).toBe(blocked);
+  const changed = editorReducer(state, { type: "rename", name: "我的改写" });
+  expect(editorReducer(changed, { type: "receiveExternal", bundle: { file: result.state, blobs: {} }, stamp, changes })).toBe(changed);
+  state = editorReducer(state, { type: "receiveExternal", bundle: { file: result.state, blobs: {} }, stamp, changes });
+  expect(state.sessionId).toBe(stamp.sessionId);
+  expect(state.file.board.view).toEqual({ panX: 90, panY: 50, zoom: .75 });
+  expect(state.file.history).toHaveLength(1);
+  expect(state.externalUpdate?.nodes).toEqual([node.id]);
+  state = editorReducer(state, { type: "undo" });
+  expect(state.file.nodes).toHaveLength(0);
+  expect(state.file.history).toHaveLength(2);
+});
 
 it("忽略保存期间新增修改对应的旧保存结果", () => {
   let state = editorReducer(initialEditorState(), { type: "rename", name: "第一版" });
@@ -24,10 +48,12 @@ it("取消文件选择后保持未保存；新白板不受旧保存回调影响"
   expect(state.saveState).toBe("dirty");
 
   state = editorReducer(state, { type: "newBoard" });
+  state = editorReducer(state, { type: "setHandle", handle: {} as FileSystemFileHandle, fileName: "旧文件.draft", stamp });
   state = editorReducer(state, { type: "markSaved", stamp });
   state = editorReducer(state, { type: "markSaveError", stamp, message: "旧文件失败" });
   expect(state.saveState).toBe("clean");
   expect(state.saveError).toBeNull();
+  expect(state.fileHandle).toBeNull();
 });
 
 it("新白板的建议文件名随名称更新，已打开文件保持原文件名", () => {

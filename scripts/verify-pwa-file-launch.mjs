@@ -39,18 +39,22 @@ const browser = await launchBrowser();
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 await context.addInitScript(
   ({ fileBytes, fileName }) => {
+    let diskBytes = new Uint8Array(fileBytes);
     const handle = {
       kind: "file",
       name: fileName,
       async getFile() {
-        return new File([new Uint8Array(fileBytes)], fileName, { type: "application/octet-stream" });
+        return new File([diskBytes], fileName, { type: "application/octet-stream" });
       },
       async createWritable() {
+        let pendingBytes;
         return {
           async write(data) {
             window.__pwaSavedBytes = data.byteLength;
+            pendingBytes = new Uint8Array(data instanceof Blob ? await data.arrayBuffer() : data);
           },
-          async close() {},
+          async close() { if (pendingBytes) diskBytes = pendingBytes; },
+          async abort() { pendingBytes = null; },
         };
       },
     };
@@ -133,6 +137,12 @@ for (const [saveAs, failSave] of [[false, false], [true, false], [false, true], 
   await page.getByRole("button", { name: saveAs ? "另存为" : "保存", exact: true }).click();
   await page.waitForFunction(() => window.__oldSaveStarted);
   const oldSession = await page.evaluate(() => window.__state.sessionId);
+  page.once("dialog", async dialog => {
+    if (dialog.type() !== "confirm") throw new Error("切换保存中的会话应触发确认");
+    const expected = saveAs ? "当前白板有未保存修改，确定打开另一个文件吗？" : "当前白板有未保存修改，确定新建并丢弃吗？";
+    if (dialog.message() !== expected) throw new Error(`意外的确认：${dialog.message()}`);
+    await dialog.accept();
+  });
   if (saveAs) {
     await page.evaluate(() => window.__launchConsumer({ files: [window.__launchHandle] }));
   } else {

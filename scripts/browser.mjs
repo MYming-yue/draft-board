@@ -1,4 +1,18 @@
 import { chromium } from "playwright-core";
+import assert from "node:assert/strict";
+
+/** Fixture replacement explicitly accepts only the expected unsaved-open prompt. */
+export async function prepareFixtureOpen(page) {
+  const pending = await page.evaluate(() => {
+    const state = window.__state;
+    return state && (state.editingId || state.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(state.saveState));
+  });
+  if (pending) page.once("dialog", async dialog => {
+    assert.equal(dialog.type(), "confirm");
+    assert.equal(dialog.message(), "当前白板有未保存内容，确定打开另一个文件吗？");
+    await dialog.accept();
+  });
+}
 
 /** Use the same browser selection in local regressions and CI. */
 export async function launchBrowser() {

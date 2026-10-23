@@ -29,6 +29,7 @@ interface NodeCardProps {
   hideCaptions: boolean;
   node: BoardNode;
   selected: boolean;
+  externalChanged?: boolean;
   front: boolean;
   editing: boolean;
   blobUrl?: string;
@@ -419,6 +420,7 @@ export function NodeCard(p: NodeCardProps) {
         !isImage && !p.editing ? "has-core" : "",
         formulaScale !== null ? "formula-fit" : "",
         p.selected ? "selected" : "",
+        p.externalChanged ? "external-changed" : "",
         p.connectSourceId && p.connectSourceId !== node.id ? "connect-target" : "",
         p.readOnly ? "readonly" : "",
       ].join(" ")}

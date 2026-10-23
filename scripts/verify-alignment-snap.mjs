@@ -1,7 +1,7 @@
 // 真实浏览器验证：中心/边框吸附、参考线、最终坐标与历史步骤。
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { launchBrowser } from "./browser.mjs";
+import { launchBrowser, prepareFixtureOpen } from "./browser.mjs";
 import { createEmptyBoard, serializeBoard } from "../dist-model/index.js";
 
 const port = 4184;
@@ -85,6 +85,7 @@ try {
     { id: "n_large01", type: "text", markdown: "# 大卡 B", caption: "尺寸越大，邻域应适当扩大。".repeat(12), x: 400, y: 280, w: 500, h: 300, accent: "green" },
     { id: "n_small01", type: "text", markdown: "卡片 A", x: 50, y: 80, w: 120, h: 80, accent: "amber" },
   ];
+  await prepareFixtureOpen(page);
   const [largeChooser] = await Promise.all([
     page.waitForEvent("filechooser"),
     page.getByRole("button", { name: "打开", exact: true }).click(),

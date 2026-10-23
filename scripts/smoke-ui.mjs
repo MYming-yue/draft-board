@@ -11,6 +11,26 @@ const ok = (name, cond) => {
   if (!cond) process.exitCode = 1;
 };
 
+// Real routing and platform font metrics can put a card or edge at a formerly
+// empty coordinate. Pick a genuinely blank DOM target for creation gestures.
+function firstBlankCanvasPoint(candidates) {
+  const canvas = document.querySelector('.canvas');
+  const bounds = canvas.getBoundingClientRect();
+  return candidates.find(({x,y})=>{
+    if(x<bounds.left+12 || x>bounds.right-12 || y<bounds.top+12 || y>bounds.bottom-12)return false;
+    const hit=document.elementFromPoint(x,y);
+    return hit?.closest('.canvas')===canvas && !hit.closest('[data-node-id],.edge-hit,.edge-label,[data-collection-id],input,textarea,button');
+  }) ?? null;
+}
+async function doubleClickBlank(target,x,y) {
+  await target.locator('.canvas').waitFor({state:'visible'});
+  const candidates=[{x,y}];
+  for(let radius=24;radius<=240;radius+=24)for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]])candidates.push({x:x+dx*radius,y:y+dy*radius});
+  const point=await target.evaluate(firstBlankCanvasPoint,candidates);
+  if(!point)throw new Error('No blank canvas target near the requested creation gesture');
+  await target.mouse.dblclick(point.x,point.y);
+}
+
 // 自起静态服务（直接 spawn vite 的 node 入口，kill 可杀干净；绑 IPv4 避免 ::1/localhost 解析分叉）
 const server = spawn(
   process.execPath,
@@ -134,7 +154,7 @@ await page.mouse.up({ button: "left" });
 await page.waitForTimeout(100);
 
 // 步骤 1：双击空白创建中心卡并输入
-await page.mouse.dblclick(640, 400);
+await doubleClickBlank(page,640,400);
 await waitForCoreEditor();
 const ed = page.locator(".node-editor:not(.formula-caption-editor)");
 await ed.click();
@@ -234,7 +254,7 @@ ok("PNG 导出触发下载", download.suggestedFilename().endsWith(".png"));
 
 // ---- 回归：用户报告「卡片没办法删除或者修改」（真实按键路径） ----
 // R1：建卡 → 单击选中 → Delete 删除
-await page.mouse.dblclick(300, 620);
+await doubleClickBlank(page,300,620);
 await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("待删除的卡", { delay: 5 });
 await page.keyboard.press("Control+Enter");
@@ -291,7 +311,7 @@ try {
 
 // ---- 回归：Issue 1 连续创建叠卡 ----
 // 多行根卡 + 连续 3 次 Tab（子卡链）+ 3 次 Shift+Enter（同级顺延），7 卡两两不重叠且间距 ≥8
-await page.mouse.dblclick(1050, 720);
+await doubleClickBlank(page,1050,720);
 await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("避让根\n第二行\n第三行", { delay: 3 });
 await page.keyboard.press("Control+Enter");
@@ -446,7 +466,7 @@ for (let i = 0; i < arrowInfo.targets.length; i++) {
 ok("全部箭头头部在目标卡边框外侧且贴边", arrowsOk);
 
 // ---- 回归：本批 Issue 1 同级卡自动继承父边 ----
-await page.mouse.dblclick(60, 700);
+await doubleClickBlank(page,60,700);
 await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("继承A", { delay: 3 });
 await page.keyboard.press("Control+Enter");
@@ -473,7 +493,7 @@ ok(
   inheritInfo.edges.includes(`${inheritInfo.ids["继承A"]}->${inheritInfo.ids["继承B1"]}`),
 );
 // 无父卡 Shift+Enter → 独立卡不建边
-await page.mouse.dblclick(60, 780);
+await doubleClickBlank(page,60,780);
 await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("无父C", { delay: 3 });
 await page.keyboard.press("Control+Enter");
@@ -492,7 +512,7 @@ const noParentInfo = await page.evaluate(() => {
 ok("无父卡 Shift+Enter 建独立卡不建边", noParentInfo.edgeCount === edgeCountBefore && !noParentInfo.intoC1);
 
 // ---- 回归：本批 Issue 2 文本卡自由比例缩放 + min-height 不裁切 ----
-await page.mouse.dblclick(640, 500);
+await doubleClickBlank(page,640,500);
 await waitForCoreEditor();
 await page.locator(".node-editor:not(.formula-caption-editor)").pressSequentially("缩放目标", { delay: 3 });
 await page.getByRole("textbox", { name: "卡片备注", exact: true }).fill("用于验证备注宽度与主体独立缩放。");
@@ -604,7 +624,7 @@ ok("caption 写入 image 节点 markdown 字段", await page.evaluate((id) => {
 }, capId));
 
 // ---- 回归：本批 Issue 4 插入工具条 ----
-await page.mouse.dblclick(820, 500);
+await doubleClickBlank(page,820,500);
 await waitForCoreEditor();
 ok("编辑态出现插入工具条", (await page.locator(".insert-bar").count()) === 1);
 await page.locator(".node-editor:not(.formula-caption-editor)").fill("普通");
@@ -670,7 +690,7 @@ const freeSpot = async () => {
       if (cardX < occ.canvas.left + 20 || cardX + cardW > occ.canvas.right - 20 || cardY < occ.canvas.top + 20 || cardY + cardH > occ.canvas.bottom - 20) continue;
       const gap = 80 * occ.zoom;
       const hit = occ.rects.some(r => cardX < r.x + r.w + gap && cardX + cardW + gap > r.x && cardY < r.y + r.h + gap && cardY + cardH + gap > r.y);
-      if (!hit) return { x, y };
+      if (!hit && await page.evaluate(firstBlankCanvasPoint,[{x,y}])) return { x, y };
     }
   }
   return null;
@@ -960,7 +980,7 @@ const placementPage = await browser.newPage({ viewport: { width: 1280, height: 8
 placementPage.on("pageerror", (e) => errors.push("placement pageerror: " + e.message));
 await placementPage.goto(URL);
 await placementPage.locator('.canvas').waitFor({state:'visible'});
-await placementPage.mouse.dblclick(620, 360);
+await doubleClickBlank(placementPage,620,360);
 await placementPage.getByRole("textbox", { name: "卡片正文", exact: true }).fill("邻近卡片");
 await placementPage.keyboard.press("Control+Enter");
 const placementCards = placementPage.locator(".node-card");
@@ -1024,7 +1044,7 @@ await selectionPage.goto(URL);
 // A load event does not guarantee React has mounted its canvas listeners.
 await selectionPage.locator('.canvas').waitFor({state:'visible'});
 for (const [x, label] of [[190, "选区 A"], [460, "选区 B"], [770, "选区 C"]]) {
-  await selectionPage.mouse.dblclick(x, 260);
+  await doubleClickBlank(selectionPage,x,260);
   await selectionPage.getByRole("textbox", { name: "卡片正文", exact: true }).fill(label);
   await selectionPage.keyboard.press("Control+Enter");
   await selectionPage.waitForFunction(text=>!window.__state.editingId && window.__state.file.nodes.some(n=>n.markdown===text),label);

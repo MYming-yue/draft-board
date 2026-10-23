@@ -542,6 +542,8 @@ export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasPro
         from: nodeId,
         to: targetId,
         directed: true,
+        ...(file.nodes.some(n=>[nodeId,targetId].includes(n.id) && n.shape && n.shape !== 'card')
+          ? {routing:'orthogonal' as const,stroke:'solid' as const} : {}),
       };
       commit("建立关联", connectAssociationOps(file.edges, edge), { nodes: [], edges: [edge.id] });
       setEditingLabelId(edge.id);
@@ -962,7 +964,7 @@ export function Canvas({ editor, fitNonce, layoutFit, structureView }: CanvasPro
       >
         {collectionUI.layer}
         <EdgeLayer
-          nodes={nodes}
+          nodes={drag ? nodes.map(n => drag.ids.includes(n.id) ? {...n,x:n.x+drag.dx,y:n.y+drag.dy} : n) : nodes}
           edges={edges}
           heights={heights}
           widths={widths}

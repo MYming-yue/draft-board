@@ -25,6 +25,22 @@ it("外部批次保留视图和会话，整轮撤销，并拒绝过期更新覆�
   expect(state.file.history).toHaveLength(2);
 });
 
+it("宿主更新已绑定磁盘的白板后仍需保存磁盘文件", () => {
+  const original = initialEditorState();
+  const handle = { name: "共同草稿.draft" } as FileSystemFileHandle;
+  const stamp = { sessionId: original.sessionId, editRevision: original.editRevision };
+  const state = editorReducer(original, { type: "setHandle", handle, fileName: handle.name, stamp });
+  const node = { id: "n_host001", type: "text" as const, markdown: "新理解", x: 100, y: 100, w: 240 };
+  const result = commitStep(state.file, "宿主添加卡片", "agent", [{ op: "addNode", node, before: null, after: node }]);
+  if (!result.ok) throw new Error(result.error.message);
+  const changes = verifyExternalUpdate(state.file, result.state)!;
+  const updated = editorReducer(state, { type: "receiveExternal", bundle: { file: result.state, blobs: {} }, stamp, changes, pendingFileSave: true });
+  expect(updated.fileHandle).toBe(handle);
+  expect(updated.file.nodes[0].markdown).toBe("新理解");
+  expect(updated.saveState).toBe("dirty");
+  expect(editorReducer(updated, { type: "markSaved", stamp }).saveState).toBe("dirty");
+});
+
 it("忽略保存期间新增修改对应的旧保存结果", () => {
   let state = editorReducer(initialEditorState(), { type: "rename", name: "第一版" });
   const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };

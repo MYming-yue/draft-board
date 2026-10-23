@@ -8,6 +8,7 @@ import { useEditor } from "./ui/store";
 import { Toolbar } from "./ui/Toolbar";
 import { FileUpdates } from "./ui/FileUpdates";
 import { useFileSync } from "./ui/useFileSync";
+import { useDshBoard } from "./ui/useDshBoard";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -28,7 +29,20 @@ export default function App() {
   const [savingIO, setSavingIO] = useState(false);
   const currentState = useRef(state);
   currentState.current = state;
+  const openRequest = useRef(0);
   useFileSync(editor, diskBaseline, diskAssets, saveInFlight, layoutBusy);
+  const dshBoard = useDshBoard(editor, layoutBusy);
+  const handledLayout=useRef<string|null>(null);
+  useEffect(()=>{
+    const task=dshBoard.layoutTask;
+    if(!task || handledLayout.current===task.id || ['pending','running'].includes(task.status))return;
+    if(task.status==='completed' && task.boardId===state.file.board.id && state.file.board.contentVersion<(task.contentVersion??0))return;
+    handledLayout.current=task.id;
+    if(task.status==='completed' && task.boardId===state.file.board.id){
+      setLayoutResult(task.moved?`AI 已整理 ${task.moved} 张卡片`:'AI 判断无需移动');
+      setLayoutFit(true);setFitNonce(n=>n+1);
+    }else setLayoutResult(task.message??'布局任务已结束');
+  },[dshBoard.layoutTask,state.file]);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
@@ -48,42 +62,46 @@ export default function App() {
   const doNew = useCallback(() => {
     if (state.replay.active) dispatch({ type: "replayExit" });
     if ((state.editingId || state.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(state.saveState)) && !window.confirm("当前白板有未保存修改，确定新建并丢弃吗？")) return;
+    openRequest.current++;
     diskBaseline.current = null;
     diskAssets.current = {};
     dispatch({ type: "newBoard" });
   }, [state.replay.active, state.saveState, state.editingId, state.fileConflict, dispatch]);
 
   const doOpen = useCallback(async () => {
-    if ((state.editingId || state.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(state.saveState)) && !window.confirm("当前白板有未保存内容，确定打开另一个文件吗？")) return;
-    if (state.replay.active) dispatch({ type: "replayExit" });
-    const sessionId = state.sessionId;
+    const current = currentState.current;
+    if ((current.editingId || current.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(current.saveState)) && !window.confirm("当前白板有未保存内容，确定打开另一个文件吗？")) return;
+    if (current.replay.active) dispatch({ type: "replayExit" });
+    const sessionId = current.sessionId, requestId = ++openRequest.current;
     try {
       const opened = await openDraft();
-      if (!opened || currentState.current.sessionId !== sessionId) return;
+      if (!opened || openRequest.current !== requestId || currentState.current.sessionId !== sessionId) return;
       diskBaseline.current = opened.bundle.file;
       diskAssets.current = opened.bundle.blobs;
       dispatch({ type: "load", bundle: opened.bundle, handle: opened.handle, fileName: opened.fileName });
     } catch (e) {
-      reportError(e);
+      if (openRequest.current === requestId && currentState.current.sessionId === sessionId) reportError(e);
     }
-  }, [state.replay.active, state.editingId, state.fileConflict, state.saveState, dispatch, reportError]);
+  }, [dispatch, reportError]);
 
   // 已安装 PWA 从 Windows 双击 .draft 启动时，Chromium 会把真实文件句柄放入 launchQueue。
   const openLaunchedFile = useCallback(
     async (handle: FileSystemFileHandle) => {
-      if ((state.editingId || state.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(state.saveState)) && !window.confirm("当前白板有未保存修改，确定打开另一个文件吗？")) return;
-      if (state.replay.active) dispatch({ type: "replayExit" });
+      const current = currentState.current;
+      if ((current.editingId || current.fileConflict || document.querySelector(".edge-label-input") || ["dirty", "saving", "error"].includes(current.saveState)) && !window.confirm("当前白板有未保存修改，确定打开另一个文件吗？")) return;
+      if (current.replay.active) dispatch({ type: "replayExit" });
+      const sessionId = current.sessionId, requestId = ++openRequest.current;
       try {
         const opened = await openDraftHandle(handle);
-        if (currentState.current.sessionId !== state.sessionId) return;
+        if (openRequest.current !== requestId || currentState.current.sessionId !== sessionId) return;
         diskBaseline.current = opened.bundle.file;
         diskAssets.current = opened.bundle.blobs;
         dispatch({ type: "load", bundle: opened.bundle, handle: opened.handle, fileName: opened.fileName });
       } catch (error) {
-        reportError(error);
+        if (openRequest.current === requestId && currentState.current.sessionId === sessionId) reportError(error);
       }
     },
-    [state.saveState, state.editingId, state.fileConflict, state.replay.active, dispatch, reportError],
+    [dispatch, reportError],
   );
   const launchOpenRef = useRef(openLaunchedFile);
   launchOpenRef.current = openLaunchedFile;
@@ -220,8 +238,9 @@ export default function App() {
   }, []);
   const onFit = useCallback(() => { setLayoutFit(false); setFitNonce((n) => n + 1); }, []);
   const onLayout = (selectedOnly: boolean) => {
-    if (layoutBusy) return;
+    if (layoutBusy || dshBoard.layoutRunning) return;
     setLayoutResult(null);
+    if(dshBoard.embedded){void dshBoard.requestLayout(selectedOnly).catch(reportError);return;}
     setLayoutBusy(true);
     // 先让“整理中”绘制一帧，再运行可能耗时的关系线/集合避让。
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -242,6 +261,8 @@ export default function App() {
     (window as unknown as { __state?: unknown }).__state = state;
   }, [state]);
 
+  if (dshBoard.loading) return <div className="app"><div className="file-updates" role="status">{dshBoard.error ?? "正在连接 DSH 共同白板…"}</div></div>;
+
   return (
     <div className="app">
       <Toolbar
@@ -254,13 +275,16 @@ export default function App() {
         onExportPng={() => void doExportPng()}
         onFit={onFit}
         onLayout={onLayout}
-        layoutBusy={layoutBusy}
+        layoutBusy={layoutBusy || dshBoard.layoutRunning}
+        aiLayout={dshBoard.embedded}
+        onCancelLayout={dshBoard.layoutRunning && dshBoard.layoutTask ? ()=>void dshBoard.cancelLayout().catch(reportError) : undefined}
           layoutResult={layoutResult}
         structureView={structureView}
         onToggleStructure={() => setStructureView((v) => !v)}
         onInstall={installPrompt ? () => void doInstall() : undefined}
       />
       <FileUpdates editor={editor} onSaveCopy={() => void doSaveAs()} />
+      {dshBoard.error && <div className="file-updates conflict" role="alert">DSH 同步：{dshBoard.error}</div>}
       <Canvas editor={editor} fitNonce={fitNonce} layoutFit={layoutFit} structureView={structureView} />
       <ReplayBar editor={editor} />
     </div>

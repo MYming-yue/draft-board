@@ -11,6 +11,7 @@ import type {
   Op,
 } from "./types";
 import { validateOpShape } from "./validate";
+import { promoteFormat } from "./format";
 
 export function findNode(state: BoardFile, id: string): BoardNode | undefined {
   return state.nodes.find((n) => n.id === id);
@@ -83,7 +84,7 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
             ? { op: "addCollection", collection: next, before: null, after: structuredClone(next) }
             : { op: "updateCollection", collectionId: id, before: structuredClone(existing!), after: next });
         }
-        state.formatVersion = "2.0";
+        promoteFormat(state, 2);
         break;
       }
 
@@ -93,6 +94,7 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
         if (node.type === "image" && !state.assets.some((a) => a.id === node.assetId))
           return fail(err("E_UNKNOWN_ASSET", `assetId 无对应 assets 条目：${node.assetId}`, i, at("node.assetId")));
         state.nodes.push(node);
+        if (node.shape && node.shape !== 'card') promoteFormat(state, 3);
         normalized.push({ op: "addNode", node: structuredClone(node), before: null, after: structuredClone(node) });
         break;
       }
@@ -183,6 +185,26 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
         normalized.push({ op: "setCaptionWidth", nodeId: node.id, before, after: { captionW: op.after.captionW } });
         break;
       }
+      case "setNodeShape": {
+        const node = findNode(state, op.nodeId);
+        if (!node) return fail(err("E_UNKNOWN_NODE", `节点不存在：${op.nodeId}`, i, at("nodeId")));
+        if (node.type !== 'text') return fail(err('E_SCHEMA', '流程外形仅用于文本/公式卡', i, at('nodeId')));
+        const before = { shape: node.shape ?? null };
+        if (op.after.shape === null) delete node.shape; else node.shape = op.after.shape;
+        promoteFormat(state, 3);
+        normalized.push({ ...op, before, after: { ...op.after } });
+        break;
+      }
+      case "setEdgeStyle": {
+        const edge = findEdge(state, op.edgeId);
+        if (!edge) return fail(err('E_UNKNOWN_EDGE', `边不存在：${op.edgeId}`, i, at('edgeId')));
+        const before = { routing: edge.routing ?? null, stroke: edge.stroke ?? null };
+        if (op.after.routing === null) delete edge.routing; else edge.routing = op.after.routing;
+        if (op.after.stroke === null) delete edge.stroke; else edge.stroke = op.after.stroke;
+        promoteFormat(state, 3);
+        normalized.push({ ...op, before, after: { ...op.after } });
+        break;
+      }
       case "addEdge": {
         const edge = structuredClone(op.edge);
         if (findEdge(state, edge.id)) return fail(err("E_DUP_ID", `边 id 已存在：${edge.id}`, i, at("edge.id")));
@@ -197,6 +219,7 @@ export function applyOps(input: BoardFile, ops: Op[]): ApplyResult {
             return fail(err("E_PARENT_CYCLE", `parentChild 成环：${edge.from}→${edge.to}`, i, at("edge.from")));
         }
         state.edges.push(edge);
+        if (edge.routing !== undefined || edge.stroke !== undefined) promoteFormat(state, 3);
         normalized.push({ op: "addEdge", edge: structuredClone(edge), before: null, after: structuredClone(edge) });
         break;
       }
@@ -324,6 +347,14 @@ export function invertOps(ops: Op[]): Op[] {
             ...(op.before.coreScale !== undefined ? { coreScale: op.before.coreScale } : {}),
           },
         });
+        break;
+      case "setNodeShape":
+        if (!op.before) throw new Error('setNodeShape 缺 before，无法求逆');
+        inverse.push({ op: 'setNodeShape', nodeId: op.nodeId, before: null, after: { ...op.before } });
+        break;
+      case "setEdgeStyle":
+        if (!op.before) throw new Error('setEdgeStyle 缺 before，无法求逆');
+        inverse.push({ op: 'setEdgeStyle', edgeId: op.edgeId, before: null, after: { ...op.before } });
         break;
       case "setNodeAccent":
         if (!op.before) throw new Error("setNodeAccent 缺 before，无法求逆");

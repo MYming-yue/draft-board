@@ -16,14 +16,14 @@ function resolved(file: BoardFile, movable: string[]) {
 }
 
 describe("布局几何避让", () => {
-  it("无关卡片避开可见关系线，端点不算冲突", () => {
+  it("连线绕开无关卡片，不为固定曲线挪动卡片", () => {
     const a = card("n_line01", 0, 0), b = card("n_line02", 400, 0), c = card("n_line03", 200, 0);
     const file = { ...board([a, b, c]), edges: [{ id: "e_line01", kind: "association" as const, from: a.id, to: b.id, directed: true }] };
-    expect(layoutConflicts(file, geometry).some(c => c.kind === "edge" && c.nodeId === "n_line03")).toBe(true);
+    expect(layoutConflicts(file, geometry)).toEqual([]);
     const out = resolved(file, [c.id]);
     expect(out.nodes[0]).toEqual(a);
     expect(out.nodes[1]).toEqual(b);
-    expect(out.nodes[2].y).not.toBe(c.y);
+    expect(out.nodes[2]).toEqual(c);
   });
   for (const shape of ["rectangle", "ellipse", "circle"] as const) {
     it(`${shape} 集合与外部卡片留出边界`, () => {

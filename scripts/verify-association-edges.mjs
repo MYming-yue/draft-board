@@ -87,5 +87,33 @@ try {
     await page.screenshot({ path: `artifacts/vertical-arrow-${zoom}.png` });
   }
   assert.deepEqual(errors,[]);
+  for(const zoom of [1,0.7]) {
+    file.board.view={panX:0,panY:0,zoom};
+    file.nodes=[
+      {id:'n_nodeaa',type:'text',markdown:'前提',x:120,y:240,w:100},
+      {id:'n_nodebb',type:'text',markdown:'结论',x:850,y:240,w:100},
+      {id:'n_block01',type:'text',markdown:'中间的知识卡片',caption:'长备注也必须参与连线避让\n'.repeat(12),captionExpanded:true,captionW:280,x:400,y:120,w:100},
+    ];
+    file.edges=[{id:'e_detour01',kind:'association',from:'n_nodeaa',to:'n_nodebb',directed:true,label:'依赖'}];
+    await prepareFixtureOpen(page);
+    const [chooser]=await Promise.all([page.waitForEvent('filechooser'),page.getByRole('button',{name:'打开',exact:true}).click()]);
+    await chooser.setFiles({name:'routing.draft',mimeType:'application/octet-stream',buffer:Buffer.from(serializeBoard(file,{}))});
+    await page.evaluate(()=>document.fonts.ready);
+    await page.waitForFunction(()=>document.querySelector('[data-edge-id="e_detour01"] .edge-path')?.getAttribute('d').includes(' C ')).catch(async error=>{
+      console.log(await page.evaluate(()=>({path:document.querySelector('[data-edge-id="e_detour01"] .edge-path')?.getAttribute('d'),nodes:window.__state.file.nodes,cards:[...document.querySelectorAll('.node-card')].map(c=>({id:c.dataset.nodeId,w:getComputedStyle(c).width,h:getComputedStyle(c).height}))})));
+      await page.screenshot({path:'artifacts/routing-failure.png'});throw error;
+    });
+    const clear=await page.evaluate(()=>{
+      const path=document.querySelector('[data-edge-id="e_detour01"] .edge-path'),card=document.querySelector('[data-node-id="n_block01"]'),style=getComputedStyle(card);
+      const n=window.__state.file.nodes.find(n=>n.id==='n_block01'),w=parseFloat(style.width),h=parseFloat(style.height);
+      for(let i=0;i<=400;i++){const p=path.getPointAtLength(path.getTotalLength()*i/400);if(p.x>n.x-10&&p.x<n.x+w+10&&p.y>n.y-10&&p.y<n.y+h+10)return false;}
+      const label=document.querySelector('[data-edge-id="e_detour01"] .edge-label').getBoundingClientRect(),r=card.getBoundingClientRect();
+      return !(label.x<r.right&&label.right>r.x&&label.y<r.bottom&&label.bottom>r.y);
+    });
+    assert.ok(clear,'绘制的平滑曲线及说明避开实际备注外框');
+    assert.doesNotMatch(await page.locator('[data-edge-id="e_detour01"] .edge-path').getAttribute('d'),/ [LQ] /,'曲线绕障不回退成折线');
+    await page.screenshot({path:`artifacts/routed-arrow-${zoom}.png`});
+  }
+  assert.deepEqual(errors,[]);
   console.log("ASSOCIATION EDGES PASS: replacement, undo, reverse pair, separate paths, save");
 } finally { await browser?.close(); server.kill(); }

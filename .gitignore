@@ -5,6 +5,7 @@ dist-model/
 *.draft.tmp-*
 .tmp*
 artifacts/
+plugins/dsh-board/lib/
 test-results/
 playwright-report/
 *.log

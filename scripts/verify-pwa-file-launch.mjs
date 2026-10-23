@@ -14,6 +14,11 @@ const ok = (name, condition) => {
 const testBoard = createEmptyBoard("PWA 双击打开测试");
 testBoard.nodes.push({ id: "n_reload1", type: "text", markdown: "已保存的卡片", x: 100, y: 100, w: 240 });
 const bytes = serializeBoard(testBoard, {});
+const secondBoard = createEmptyBoard("PWA 第二份流程草稿");
+secondBoard.formatVersion = '3.0';
+secondBoard.nodes.push({id:'n_second01',type:'text',markdown:'判断信息是否充分',caption:'依据保留',shape:'diamond',x:100,y:100,w:220});
+const thirdBoard = createEmptyBoard("PWA 第三份草稿");
+thirdBoard.nodes.push({id:'n_third001',type:'text',markdown:'继续讨论',x:180,y:150,w:200});
 
 const server = spawn(
   process.execPath,
@@ -86,6 +91,68 @@ const launchState = await page.evaluate(() => ({
 }));
 ok("launchQueue 自动载入双击文件", launchState.boardName === "PWA 双击打开测试");
 ok("保留原文件句柄用于保存", launchState.hasHandle && launchState.fileName === "双击测试.draft");
+
+// Consecutive launches can leave all callback dependencies unchanged (clean -> clean).
+// They still must use the current editor session rather than the first launch's session.
+await page.evaluate(({second,third,unsupported})=>{
+  const handle=(data,name)=>({kind:'file',name,async getFile(){return new File([new Uint8Array(data)],name);}});
+  window.__secondHandle=handle(second,'第二份.draft');window.__thirdHandle=handle(third,'第三份.draft');
+  window.__unsupportedHandle=handle(unsupported,'未支持的版本.draft');
+},{second:[...serializeBoard(secondBoard,{})],third:[...serializeBoard(thirdBoard,{})],unsupported:[...serializeBoard({...secondBoard,formatVersion:'99.0'},{})]});
+await page.evaluate(()=>window.__launchConsumer({files:[window.__secondHandle]}));
+await page.waitForFunction(()=>window.__state.file.board.name==='PWA 第二份流程草稿',{},{timeout:5000});
+ok('连续双击从旧草稿切换到 3.0 流程草稿',await page.evaluate(()=>window.__state.file.nodes[0].shape==='diamond'&&window.__state.fileHandle===window.__secondHandle));
+await page.locator('[data-node-id="n_second01"]').click();
+await page.getByRole('button',{name:'外形与连线 ▾',exact:true}).click();
+ok('桌面页面提供流程外形设置',await page.getByRole('combobox',{name:'卡片外形',exact:true}).inputValue()==='diamond');
+ok('工具栏换行后的外形菜单保持在视口内',await page.locator('.appearance-popover').evaluate(p=>{const r=p.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}));
+await page.screenshot({path:'artifacts/pwa-flow-controls.png'});
+await page.getByRole('button',{name:'收起设置',exact:true}).click();
+await page.evaluate(()=>{window.showOpenFilePicker=async()=>[window.__thirdHandle];});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__state.file.board.name==='PWA 第三份草稿');
+await page.evaluate(()=>{window.showOpenFilePicker=async()=>[window.__secondHandle];});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__state.file.board.name==='PWA 第二份流程草稿');
+ok('工具栏连续打开不同草稿并正确更换句柄',await page.evaluate(()=>window.__state.fileHandle===window.__secondHandle));
+await page.evaluate(()=>{window.showOpenFilePicker=async()=>[window.__unsupportedHandle];});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__state.saveError?.includes('E_FORMAT_UNSUPPORTED'));
+ok('版本错误保留当前草稿和文件句柄',await page.evaluate(()=>window.__state.file.board.name==='PWA 第二份流程草稿'&&window.__state.fileHandle===window.__secondHandle));
+await page.evaluate(()=>{window.showOpenFilePicker=async()=>[window.__thirdHandle];});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__state.file.board.name==='PWA 第三份草稿'&&!window.__state.saveError);
+ok('打开失败后仍可从工具栏打开另一份有效草稿',true);
+// The most recently requested file wins even when an older disk read finishes later.
+await page.evaluate(()=>{
+  window.__slowHandle={kind:'file',name:'延迟旧文件.draft',async getFile(){window.__oldReadStarted=true;return new Promise(resolve=>{window.__finishOldRead=async()=>resolve(await window.__thirdHandle.getFile());});}};
+  window.showOpenFilePicker=async()=>[window.__slowHandle];
+});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__oldReadStarted);
+await page.evaluate(()=>{window.showOpenFilePicker=async()=>[window.__launchHandle];});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__state.file.board.name==='PWA 双击打开测试');
+await page.evaluate(()=>window.__finishOldRead());
+await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ok('旧文件慢读取结果不能覆盖后一次打开',await page.evaluate(()=>window.__state.fileHandle===window.__launchHandle&&window.__state.file.board.name==='PWA 双击打开测试'));
+await page.evaluate(()=>{
+  const delayed=(key,handle)=>({kind:'file',name:handle.name,async getFile(){window[key+'Started']=true;return new Promise(resolve=>{window[key]=async()=>resolve(await handle.getFile());});}});
+  window.__earlierHandle=delayed('__finishEarlier',window.__secondHandle);
+  window.__laterHandle=delayed('__finishLater',window.__thirdHandle);
+  window.showOpenFilePicker=async()=>[window.__earlierHandle];
+});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__finishEarlierStarted);
+await page.evaluate(()=>{window.showOpenFilePicker=async()=>[window.__laterHandle];});
+await page.getByRole('button',{name:'打开',exact:true}).click();
+await page.waitForFunction(()=>window.__finishLaterStarted);
+await page.evaluate(()=>window.__finishEarlier());
+await page.evaluate(()=>window.__finishLater());
+await page.waitForFunction(()=>window.__state.file.board.name==='PWA 第三份草稿');
+ok('较早读取先完成时仍以最后一次打开请求为准',await page.evaluate(()=>window.__state.fileHandle===window.__laterHandle));
+await page.evaluate(()=>window.__launchConsumer({files:[window.__launchHandle]}));
+await page.waitForFunction(()=>window.__state.file.board.name==='PWA 双击打开测试');
 
 const card = page.locator('[data-node-id="n_reload1"]');
 await card.dblclick();

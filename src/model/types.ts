@@ -7,6 +7,11 @@ export type Accent = "default" | "blue" | "green" | "amber" | "red";
 export const ACCENTS: readonly Accent[] = ["default", "blue", "green", "amber", "red"];
 
 export type NodeType = "text" | "image";
+export type NodeShape = "card" | "rectangle" | "diamond" | "pill";
+export const NODE_SHAPES: readonly NodeShape[] = ["card", "rectangle", "diamond", "pill"];
+export type EdgeRouting = "curve" | "orthogonal";
+export type EdgeStroke = "solid" | "dashed" | "flowing-dashed";
+export const EDGE_STROKES: readonly EdgeStroke[] = ["solid", "dashed", "flowing-dashed"];
 export type EdgeKind = "association" | "parentChild";
 export type Actor = "user" | "agent";
 
@@ -39,6 +44,7 @@ export interface BoardNode {
   captionExpanded?: boolean; // true = 阅读态常驻展开备注；缺省或 false = 未选中时截断
   coreScale?: number; // 普通文本卡核心字号比例，缺省 1；纯公式卡由 w/h 反推，忽略此字段
   captionW?: number; // 备注阅读宽度；缺省时有备注则至少 220，且不小于核心区宽
+  shape?: NodeShape; // 缺省为普通卡片；文本/公式可选流程外形。
 }
 
 export interface BoardEdge {
@@ -48,6 +54,8 @@ export interface BoardEdge {
   to: string; // ^n_...
   directed: boolean; // parentChild 恒为 true，方向 = 父→子
   label?: string;
+  routing?: EdgeRouting; // 缺省保留曲线与自动避让。
+  stroke?: EdgeStroke; // 缺省 association 虚线、parentChild 实线；flowing-dashed 仅有向边流动。
 }
 
 export interface BoardAsset {
@@ -97,6 +105,8 @@ export type Op =
   | { op: "setNodeAccent"; nodeId: string; before: { accent: Accent } | null; after: { accent: Accent } }
   | { op: "setCaptionExpanded"; nodeId: string; before: { expanded: boolean } | null; after: { expanded: boolean } }
   | { op: "setCaptionWidth"; nodeId: string; before: { captionW: number | null } | null; after: { captionW: number | null } }
+  | { op: "setNodeShape"; nodeId: string; before: { shape: NodeShape | null } | null; after: { shape: NodeShape | null } }
+  | { op: "setEdgeStyle"; edgeId: string; before: { routing: EdgeRouting | null; stroke: EdgeStroke | null } | null; after: { routing: EdgeRouting | null; stroke: EdgeStroke | null } }
   | { op: "addEdge"; edge: BoardEdge; before: null; after: BoardEdge }
   | { op: "removeEdge"; edgeId: string; before: BoardEdge | null; after: null }
   | {
@@ -119,6 +129,7 @@ export const OP_NAMES: readonly OpName[] = [
   "setNodeAccent",
   "setCaptionExpanded",
   "setCaptionWidth",
+  "setNodeShape", "setEdgeStyle",
   "addEdge",
   "removeEdge",
   "updateEdge",

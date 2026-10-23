@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from 'react';
 import type { BoardNode } from "../model";
 import {
   CARD_CHROME_X,
@@ -178,6 +179,7 @@ export function NodeCard(p: NodeCardProps) {
   const [liveCaptionW, setLiveCaptionW] = useState<number | null>(null);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [liveScale, setLiveScale] = useState<number | null>(null);
+  const [shapeBodyHeight, setShapeBodyHeight] = useState(0);
   const [showBlocks, setShowBlocks] = useState(false);
   const [showGreek, setShowGreek] = useState(false);
   const [greekHistory, setGreekHistory] = useState<string[]>(readGreekHistory);
@@ -408,11 +410,17 @@ export function NodeCard(p: NodeCardProps) {
   const showCaptionEditor = !isImage;
   const captionReadingW = hasFormulaCaption ? (liveCaptionW ?? node.captionW ?? DEFAULT_CAPTION_W) : 0;
   const outerW = coreBox ? Math.max(coreBox.w, captionReadingW) : w;
+  const shape = !isImage && !p.editing ? node.shape ?? 'card' : 'card';
+  const silhouette = shape === 'diamond' || shape === 'pill';
+  const bodyHeight = shapeBodyHeight || Math.max(1,(coreBox?.h ?? 70)-CARD_CHROME_Y);
+  const shapeHeight = (bodyHeight + CARD_CHROME_Y) * (shape === 'diamond' ? 2 : 1);
+  const shapeWidth = shape === 'diamond' ? outerW * 2 : outerW + shapeHeight;
 
   return (
     <div
       className={[
         "node-card",
+        `node-shape-${shape}`,
         p.editing ? "editing" : "",
         p.front ? "front" : "",
         !isImage && !p.editing && !formulaKind ? "concept-card" : "",
@@ -429,7 +437,7 @@ export function NodeCard(p: NodeCardProps) {
         top: y,
         ...(p.editing && !isImage
           ? { width: "max-content", minWidth: EDIT_MIN_W }
-          : coreBox
+          : silhouette ? {width:shapeWidth,height:shapeHeight} : coreBox
             ? {
                 width: outerW,
                 ...(formulaBox && !hasFormulaCaption ? { height: formulaBox.h } : {}),
@@ -437,6 +445,9 @@ export function NodeCard(p: NodeCardProps) {
             : { width: w }),
       }}
       data-node-id={node.id}
+      data-node-shape={shape}
+      data-shape-base-width={!isImage ? outerW : undefined}
+      data-shape-fixed-height={!isImage && formulaBox && !hasFormulaCaption ? formulaBox.h : undefined}
       onClick={(e) => {
         if (e.ctrlKey && (e.target as HTMLElement).closest("a")) e.preventDefault();
       }}
@@ -492,6 +503,11 @@ export function NodeCard(p: NodeCardProps) {
           ))}
         </div>
       )}
+      {silhouette && <svg className="node-shape-outline" viewBox={`0 0 ${shapeWidth} ${shapeHeight}`} aria-hidden="true">
+        {shape === 'diamond' ? <polygon points={`${shapeWidth/2},1 ${shapeWidth-1},${shapeHeight/2} ${shapeWidth/2},${shapeHeight-1} 1,${shapeHeight/2}`} /> :
+          <rect x="1" y="1" width={shapeWidth-2} height={shapeHeight-2} rx={(shapeHeight-2)/2} />}
+      </svg>}
+      <ShapeBody shaped={silhouette} width={outerW-CARD_CHROME_X} onHeight={setShapeBodyHeight}>
       {isImage ? (
         <>
           {p.blobUrl ? (
@@ -606,6 +622,7 @@ export function NodeCard(p: NodeCardProps) {
       {!p.editing && hasFormulaCaption && (
         <div className={`${captionClass} formula-caption`} dangerouslySetInnerHTML={{ __html: renderMarkdown(node.caption!) }} />
       )}
+      </ShapeBody>
       {p.selected && !p.editing && !p.readOnly && (
         <button
           type="button"
@@ -657,6 +674,18 @@ export function NodeCard(p: NodeCardProps) {
       )}
     </div>
   );
+}
+
+/** Measure unscaled content before allocating the shape's safe inner rectangle. */
+function ShapeBody({shaped,width,onHeight,children}: {shaped:boolean;width:number;onHeight:(height:number)=>void;children:ReactNode}) {
+  const ref=useRef<HTMLDivElement>(null);
+  useLayoutEffect(()=>{
+    if(!shaped || !ref.current)return;
+    const measure=()=>{const h=parseFloat(getComputedStyle(ref.current!).height);if(h>0)onHeight(h);};
+    measure();const observer=new ResizeObserver(measure);observer.observe(ref.current);
+    return()=>observer.disconnect();
+  },[shaped,width,onHeight]);
+  return shaped ? <div ref={ref} className="node-shape-content" style={{width}}>{children}</div> : <>{children}</>;
 }
 
 function CaptionExpandToggle({ checked, onChange }: { checked: boolean; onChange: (next: boolean) => void }) {

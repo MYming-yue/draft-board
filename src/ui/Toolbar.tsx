@@ -1,6 +1,8 @@
 import { ACCENTS, type Accent } from "../model";
 import type { EditorApi } from "./store";
 import { HistoryIcon } from "./HistoryIcon";
+import { AppearanceControls } from './AppearanceControls';
+import { version } from '../../package.json';
 
 interface ToolbarProps {
   editor: EditorApi;
@@ -13,6 +15,8 @@ interface ToolbarProps {
   onFit: () => void;
   onLayout: (selectedOnly: boolean) => void;
   layoutBusy: boolean;
+  aiLayout?: boolean;
+  onCancelLayout?: () => void;
   layoutResult: string | null;
   structureView: boolean;
   onToggleStructure: () => void;
@@ -65,7 +69,7 @@ export function Toolbar(p: ToolbarProps) {
   return (
     <div className="toolbar">
       <span id="collection-controls" className="collection-controls" />
-      <span className="brand">草稿白板</span>
+      <span className="brand" title={`版本 ${version} · 支持草稿格式 1.0 / 2.0 / 3.0`}>草稿白板 <small className="app-version">v{version}</small></span>
       <input
         className="board-name"
         value={state.file.board.name}
@@ -90,8 +94,9 @@ export function Toolbar(p: ToolbarProps) {
         </button>
       </span>
       <button onClick={(event) => p.onLayout(event.shiftKey)} disabled={p.layoutBusy || state.replay.active || !!state.editingId} aria-busy={p.layoutBusy} title="整理全板并适应视图；按住 Shift 点击时只整理选中卡片及其后代">
-        {p.layoutBusy ? "整理中…" : "布局整理"}
+        {p.layoutBusy ? "整理中…" : p.aiLayout ? "AI 布局整理" : "布局整理"}
       </button>
+      {p.onCancelLayout && <button onClick={p.onCancelLayout} title="取消布局提交；停止模型生成请使用 DSH 原生停止按钮">取消整理</button>}
       {p.layoutResult && <span className="layout-result" role="status">{p.layoutResult}</span>}
       <button onClick={p.onFit} title="回到全部内容可见">适应视图</button>
       <button aria-pressed={p.structureView} onClick={p.onToggleStructure} title="只切换备注显示，不修改卡片内容或位置">
@@ -116,6 +121,7 @@ export function Toolbar(p: ToolbarProps) {
         ))}
       </span>
       <span className="spacer" />
+      <AppearanceControls editor={p.editor} />
       {state.saveError && <span className="save-error" title={state.saveError}>⚠ {state.saveError}</span>}
       <span className={`save-status ${status.cls}`}>{status.text}</span>
     </div>

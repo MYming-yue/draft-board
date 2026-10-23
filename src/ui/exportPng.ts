@@ -18,6 +18,12 @@ export async function exportBoardPng(fileName: string): Promise<void> {
     x1 = Math.max(x1, c.offsetLeft + c.offsetWidth);
     y1 = Math.max(y1, c.offsetTop + c.offsetHeight);
   }
+  // Routed paths and relationship labels may extend beyond the card outline.
+  for (const element of world.querySelectorAll<SVGGraphicsElement>('.edge-path, .edge-label')) {
+    const b=element.getBBox();
+    x0=Math.min(x0,b.x);y0=Math.min(y0,b.y);
+    x1=Math.max(x1,b.x+b.width);y1=Math.max(y1,b.y+b.height);
+  }
   x0 -= pad;
   y0 -= pad;
   x1 += pad;
@@ -28,6 +34,11 @@ export async function exportBoardPng(fileName: string): Promise<void> {
   // 克隆并平移到 (0,0)
   const clone = world.cloneNode(true) as HTMLElement;
   clone.querySelectorAll(".formula-caption-button").forEach((button) => button.remove());
+  // Export a consistent static dash pattern, independent of the live animation phase.
+  clone.querySelectorAll<SVGElement>(".edge-flow-active").forEach((path) => {
+    path.style.animation = "none";
+    path.style.strokeDashoffset = "0";
+  });
   clone.style.transform = `translate(${-x0}px, ${-y0}px)`;
   clone.style.width = `${w}px`;
   clone.style.height = `${h}px`;

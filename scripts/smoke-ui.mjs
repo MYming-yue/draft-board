@@ -959,6 +959,7 @@ ok("混合卡拖角：公式字号不变", Math.abs(mK1 - mK0) < 2);
 const placementPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 placementPage.on("pageerror", (e) => errors.push("placement pageerror: " + e.message));
 await placementPage.goto(URL);
+await placementPage.locator('.canvas').waitFor({state:'visible'});
 await placementPage.mouse.dblclick(620, 360);
 await placementPage.getByRole("textbox", { name: "卡片正文", exact: true }).fill("邻近卡片");
 await placementPage.keyboard.press("Control+Enter");
@@ -1020,10 +1021,13 @@ await placementPage.close();
 const selectionPage = await browser.newPage({ viewport: { width: 1100, height: 760 } });
 selectionPage.on("pageerror", (e) => errors.push("selection pageerror: " + e.message));
 await selectionPage.goto(URL);
+// A load event does not guarantee React has mounted its canvas listeners.
+await selectionPage.locator('.canvas').waitFor({state:'visible'});
 for (const [x, label] of [[190, "选区 A"], [460, "选区 B"], [770, "选区 C"]]) {
   await selectionPage.mouse.dblclick(x, 260);
   await selectionPage.getByRole("textbox", { name: "卡片正文", exact: true }).fill(label);
   await selectionPage.keyboard.press("Control+Enter");
+  await selectionPage.waitForFunction(text=>!window.__state.editingId && window.__state.file.nodes.some(n=>n.markdown===text),label);
 }
 const selectionIds = await selectionPage.evaluate(() => window.__state.file.nodes.map(n => n.id));
 const selectionCards = selectionIds.map(id => selectionPage.locator('[data-node-id="' + id + '"]'));

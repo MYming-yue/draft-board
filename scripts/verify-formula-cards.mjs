@@ -55,14 +55,12 @@ try {
     const path = document.querySelector(".edge-path") ?? document.querySelector("path[marker-end]");
     const start = path.getPointAtLength(0);
     const card = document.querySelector('[data-node-id="n_formula0"]');
-    const target = document.querySelector('[data-node-id="n_formula1"]');
     const cx = card.offsetLeft + card.offsetWidth / 2;
     const cy = card.offsetTop + card.offsetHeight / 2;
-    const tx = target.offsetLeft + target.offsetWidth / 2;
-    const ty = target.offsetTop + target.offsetHeight / 2;
-    return { y: start.y, expectedY: cy + (ty - cy) / (tx - cx) * (card.offsetWidth / 2 + 2) };
+    return Math.max(Math.abs(start.x-cx)-card.offsetWidth/2,Math.abs(start.y-cy)-card.offsetHeight/2);
   });
-  assert.ok(Math.abs(arrow.y - arrow.expectedY) < 1, "旧卡片连线以紧凑外框为准");
+  assert.ok(Math.abs(arrow-2) < 1, "旧卡片连线按实际紧凑外框留 2 单位，不依赖旧存档尺寸或固定中心连线落点");
+
   assert.equal(await page.locator('[data-node-id="n_formula3"] .formula-scaled').count(), 0);
   console.log("FORMULA CARDS PASS");
 

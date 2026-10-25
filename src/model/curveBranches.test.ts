@@ -75,6 +75,26 @@ it.each(['rectangle','diamond','pill'] as const)('keeps %s endpoint outlines out
     for(const g of geometries.values())for(const p of g.points){
         const dx=Math.abs(p.x-r.x-r.w/2),dy=Math.abs(p.y-r.y-r.h!/2);
         if(shape==='diamond')expect(dx/(r.w/2)+dy/(r.h!/2)).toBeGreaterThanOrEqual(1);
-        else expect(dx>=r.w/2 || dy>=r.h!/2).toBe(true);
+        else if(shape==='pill'){
+            const radius=Math.min(r.w,r.h!)/2,x=Math.max(0,dx-r.w/2+radius),y=Math.max(0,dy-r.h!/2+radius);
+            expect(dx>=r.w/2 || dy>=r.h!/2 || x*x+y*y>=radius*radius-1e-5).toBe(true);
+        }else expect(dx>=r.w/2 || dy>=r.h!/2).toBe(true);
     }
+});
+
+it.each([0,1,2,3])('uses one smooth cubic and centre-facing oblique arrows, without midpoint ports (rotation %s)',turns=>{
+    const {nodes,edges}=scene(turns),geometries=edgeGeometries(edges,nodes,{});
+    for(const edge of edges){
+        const g=geometries.get(edge.id)!,target=nodes.find(n=>n.id===edge.to)!,head=g.arrow!;
+        expect((g.d.match(/ C /g)||[])).toHaveLength(1);
+        const vx=head.tip.x-head.base.x,vy=head.tip.y-head.base.y,cx=target.x+target.w/2-head.tip.x,cy=target.y+target.h!/2-head.tip.y;
+        expect(vx*cy-vy*cx).toBeCloseTo(0,6);
+        expect(vx*cx+vy*cy).toBeGreaterThan(0);
+        expect(Math.hypot(vx,vy)).toBeCloseTo(10,6);
+    }
+    const outer=geometries.get(edges.at(-1)!.id)!,target=nodes.at(-1)!;
+    const cross=turns%2?'y':'x',centre=target[cross]+(cross==='x'?target.w:target.h!)/2;
+    expect(Math.abs(outer.toPt[cross]-centre)).toBeGreaterThan(5);
+    expect(Math.abs(outer.arrow!.tip.x-outer.arrow!.base.x)).toBeGreaterThan(.5);
+    expect(Math.abs(outer.arrow!.tip.y-outer.arrow!.base.y)).toBeGreaterThan(.5);
 });

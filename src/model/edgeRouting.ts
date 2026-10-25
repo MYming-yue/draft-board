@@ -107,14 +107,24 @@ function ports(r: Rect, pad: number) {
     return [{ x: r.x + r.w + pad, y: cy }, { x: cx, y: r.y + r.h + pad }, { x: r.x - pad, y: cy }, { x: cx, y: r.y - pad }];
 }
 type Side = 0 | 1 | 2 | 3;
-type CurvePorts = { from: Point; to: Point; fromSide: Side; toSide: Side };
+type CurvePorts = { from: Point; to: Point; fromSide: Side; toSide: Side; controls?: [Point,Point] };
 const normals: Point[] = [{x:1,y:0},{x:0,y:1},{x:-1,y:0},{x:0,y:-1}];
 function facingSides(a: Rect, b: Rect): Side[] {
     return ([0,1,2,3] as Side[]).filter(s => s===0 ? b.x>=a.x+a.w+8 : s===1 ? b.y>=a.y+a.h+8 : s===2 ? b.x+b.w+8<=a.x : b.y+b.h+8<=a.y);
 }
-function sidePort(r: Rect, side: Side, pad: number, fraction=.5, shape?: NodeShape): Point {
-    const p=side%2 ? {x:r.x+r.w*fraction,y:side===1?r.y+r.h:r.y} : {x:side===0?r.x+r.w:r.x,y:r.y+r.h*fraction};
-    return border(r,p,pad,shape);
+/** Controls live in the open gap. Projecting them from each card's centre
+ * gives free boundary anchors and a centre-facing terminal tangent. */
+function naturalPorts(rf:Rect,rt:Rect,side:Side,fromShape?:NodeShape,toShape?:NodeShape,lean=.22,strength=.42,sourceGap?:number):CurvePorts {
+    const axis=side%2?'y':'x',cross=side%2?'x':'y',sign=side<2?1:-1;
+    const a={x:rf.x+rf.w/2,y:rf.y+rf.h/2},b={x:rt.x+rt.w/2,y:rt.y+rt.h/2};
+    const start=axis==='y'?(sign>0?rf.y+rf.h:rf.y):(sign>0?rf.x+rf.w:rf.x);
+    const end=axis==='y'?(sign>0?rt.y:rt.y+rt.h):(sign>0?rt.x:rt.x+rt.w);
+    const gap=Math.max(0,(end-start)*sign-8),c1={...a},c2={...b};
+    c1[axis]=start+sign*(2+Math.min(gap,sourceGap??gap)*strength);
+    c2[axis]=end-sign*(6+gap*strength);
+    c1[cross]=a[cross]+(b[cross]-a[cross])*lean;
+    c2[cross]=b[cross]-(b[cross]-a[cross])*lean;
+    return {from:border(rf,c1,2,fromShape),to:border(rt,c2,6,toShape),fromSide:side,toSide:((side+2)%4) as Side,controls:[c1,c2]};
 }
 /** One deterministic plan for siblings, independent of edge array/render order. */
 function siblingPorts(e: BoardEdge, nodes: BoardNode[], rect: (n:BoardNode)=>Rect, edges: readonly BoardEdge[]): CurvePorts | undefined {
@@ -128,15 +138,15 @@ function siblingPorts(e: BoardEdge, nodes: BoardNode[], rect: (n:BoardNode)=>Rec
     // A row favours vertical fan-out; a column favours horizontal fan-out.
     const span=(axis:'x'|'y')=>{const values=children.map(c=>c.r[axis]+(axis==='x'?c.r.w:c.r.h)/2);return Math.max(...values)-Math.min(...values);};
     common.sort((a,b)=>(a%2 ? span('y') : span('x'))-(b%2 ? span('y') : span('x')) || a-b);
-    const side=common[0], axis=side%2?'x':'y';
-    children.sort((a,b)=>(a.r[axis]+(axis==='x'?a.r.w:a.r.h)/2)-(b.r[axis]+(axis==='x'?b.r.w:b.r.h)/2) || a.e.id.localeCompare(b.e.id));
-    const rank=children.findIndex(c=>c.e.id===e.id), child=children[rank], opposite=((side+2)%4) as Side;
-    return {from:sidePort(rf,side,2,(rank+1)/(children.length+1),from.shape),to:sidePort(child.r,opposite,6,.5,child.n.shape),fromSide:side,toSide:opposite};
+    const side=common[0],sign=side<2?1:-1;
+    const start=side%2?(sign>0?rf.y+rf.h:rf.y):(sign>0?rf.x+rf.w:rf.x);
+    const gap=Math.min(...children.map(c=>((side%2?(sign>0?c.r.y:c.r.y+c.r.h):(sign>0?c.r.x:c.r.x+c.r.w))-start)*sign-8));
+    const child=children.find(c=>c.e.id===e.id)!;
+    // A common source guide plane preserves target order without fixed ports.
+    return naturalPorts(rf,child.r,side,from.shape,child.n.shape,.22,.42,gap);
 }
-function directCurve(p: CurvePorts, strength=.5): {d:string;points:Point[]} {
-    const {from:a,to:b}=p, n=normals[p.fromSide], m=normals[p.toSide];
-    const reach=Math.max(0,Math.abs(p.fromSide%2 ? b.y-a.y : b.x-a.x)*strength);
-    const c={x:a.x+n.x*reach,y:a.y+n.y*reach},d={x:b.x+m.x*reach,y:b.y+m.y*reach};
+function directCurve(p: CurvePorts): {d:string;points:Point[]} {
+    const {from:a,to:b}=p,[c,d]=p.controls!;
     return {d:`M ${a.x} ${a.y} C ${c.x} ${c.y}, ${d.x} ${d.y}, ${b.x} ${b.y}`,points:curve([a,c,d,b])};
 }
 function simplify(points: Point[]): Point[] {
@@ -268,7 +278,7 @@ function roundedPath(path: Point[]): {
 /** Fit inside the routing corridor, rather than interpolating its square corners.
  * Convex Bezier controls cannot overshoot a horizontal/vertical run into a hook. */
 function curvedDetour(path: Point[], obstacles: Rect[]): {d:string;points:Point[]} | null {
-    // Preserve endpoint normals; shortcut only the interior visibility-grid walk.
+    // Preserve endpoint directions; shortcut only the interior visibility-grid walk.
     const short=path.slice(0,2);
     for(let i=1;i<path.length-2;){
         let next=i+1;
@@ -323,7 +333,7 @@ function decorate(g: EdgeGeom, e: BoardEdge, rects: Rect[]): EdgeGeom {
     }
     return { ...g, labelBox: { x: g.mid.x - w / 2, y: g.mid.y - 21, w, h } };
 }
-type Candidate = {g:EdgeGeom;cost:number};
+type Candidate = {g:EdgeGeom;cost:number;ordered:boolean};
 function edgeCandidates(e: BoardEdge, nodes: BoardNode[], heights: Record<string, number>, widths: Record<string, number> | undefined, edges: readonly BoardEdge[]): Candidate[] {
     const rect = (n: BoardNode): Rect => ({ x: n.x, y: n.y, w: widths?.[n.id] ?? n.w, h: heights[n.id] ?? n.h ?? 120 });
     const from = nodes.find(n => n.id === e.from), to = nodes.find(n => n.id === e.to);
@@ -347,43 +357,49 @@ function edgeCandidates(e: BoardEdge, nodes: BoardNode[], heights: Record<string
     else {
         fromPt = border(rf, b, 2, from.shape);
         toPt = border(rt, a, 6, to.shape);
-        const control = (r: Rect, p: Point, pad: number) => { const cx = r.x + r.w / 2, cy = r.y + r.h / 2, horizontal = Math.abs(p.x - cx) / (r.w / 2 + pad) >= Math.abs(p.y - cy) / (r.h / 2 + pad), reach = Math.abs(horizontal ? toPt.x - fromPt.x : toPt.y - fromPt.y) / 2; return horizontal ? { x: p.x + Math.sign(p.x - cx) * reach, y: p.y } : { x: p.x, y: p.y + Math.sign(p.y - cy) * reach }; };
-        const c1 = control(rf, fromPt, 2), c2 = control(rt, toPt, 6);
+        const c1 = {x:fromPt.x+(toPt.x-fromPt.x)/3,y:fromPt.y+(toPt.y-fromPt.y)/3};
+        const c2 = {x:fromPt.x+2*(toPt.x-fromPt.x)/3,y:fromPt.y+2*(toPt.y-fromPt.y)/3};
         points = curve([fromPt, c1, c2, toPt]);
         d = `M ${fromPt.x} ${fromPt.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${toPt.x} ${toPt.y}`;
     }
     const others = nodes.filter(n => n !== from && n !== to).map(rect), expanded = others.map(r => expand(r, CLEARANCE));
     const preferred=siblingPorts(e,nodes,rect,edges), raw={fromPt,toPt,points,d,routed:false};
     const safe=(g:{points:Point[]})=>g.points.slice(1).every((p,i)=>clear(g.points[i],p,expanded));
-    const available: {g:typeof raw;preferred:boolean}[]=[];
-    const add=(g:typeof raw,preferred=false)=>{if(safe(g) && !available.some(c=>c.g.d===g.d))available.push({g,preferred});};
+    const available: {g:typeof raw;preferred:boolean;penalty:number}[]=[];
+    const add=(g:typeof raw,preferred=false,penalty=0)=>{if(safe(g) && !available.some(c=>c.g.d===g.d))available.push({g,preferred,penalty});};
     const endpointSafe=(g:{points:Point[]})=>g.points.every(p=>![from,to].some(n=>insideNode(p,n,rect(n))));
     if(e.routing!=='orthogonal' && !reciprocal){
-        const choices:CurvePorts[]=[...(preferred?[preferred]:[]),...facingSides(rf,rt).map(side=>({from:sidePort(rf,side,2,.5,from.shape),to:sidePort(rt,((side+2)%4) as Side,6,.5,to.shape),fromSide:side,toSide:((side+2)%4) as Side}))];
-        for(const p of choices)for(const strength of [.5,.3]){
-            const shape=directCurve(p,strength),g={...shape,fromPt:p.from,toPt:p.to,routed:false};
-            if(endpointSafe(g))add(g,p===preferred);
+        const choices:CurvePorts[]=[...(preferred?[preferred]:[])];
+        for(const side of facingSides(rf,rt))for(const lean of [.22,.36,.08])choices.push(naturalPorts(rf,rt,side,from.shape,to.shape,lean));
+        for(const [i,p] of choices.entries()){
+            const shape=directCurve(p),g={...shape,fromPt:p.from,toPt:p.to,routed:false};
+            if(endpointSafe(g))add(g,p===preferred,i*18);
         }
     }
-    add(raw);
+    // A centre-to-centre line is a fallback, not a reward for flattening curves.
+    add(raw,false,e.routing!=='orthogonal' && !reciprocal?Math.hypot(b.x-a.x,b.y-a.y):0);
     if (!available.length || (preferred && !available.some(c=>c.preferred))) {
         const extra=reciprocal && e.from > e.to ? 20 : 0;
         for(const preferredRoute of preferred?[preferred,undefined]:[undefined])for(const gap of e.routing==='orthogonal'?[CLEARANCE+extra]:[48+extra,CLEARANCE+extra]){
-            const path=route(rf,rt,others,gap,preferredRoute);
+            let path=route(rf,rt,others,gap,preferredRoute);
             if(!path)continue;
+            if(e.routing!=='orthogonal')path=[border(rf,path[1],2,from.shape),...path.slice(1,-1),border(rt,path.at(-2)!,6,to.shape)];
             const detour=e.routing==='orthogonal'?roundedPath(path):curvedDetour(path,[...expanded,rf,rt]);
             if(!detour)continue;
-            add({...detour,fromPt:path[0],toPt:path.at(-1)!,routed:true},!!preferredRoute);
+            add({...detour,fromPt:path[0],toPt:path.at(-1)!,routed:true},!!preferredRoute,60);
             if(!preferred)break;
         }
     }
-    if(!available.length)available.push({g:raw,preferred:false});
+    if(!available.length)available.push({g:raw,preferred:false,penalty:0});
     return available.map(candidate=>{
         const g=candidate.g,length=g.points.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p.x-g.points[i].x,p.y-g.points[i].y),0);
         const direction=normals[preferred?.fromSide ?? facingSides(rf,rt)[0]];
         const retreat=direction ? g.points.slice(1).reduce((sum,p,i)=>sum+Math.max(0,-(p.x-g.points[i].x)*direction.x-(p.y-g.points[i].y)*direction.y),0) : 0;
-        const cost=length+retreat*4+(preferred && !candidate.preferred?400:0);
-        return {g:decorate(withMidpoint(g),e,nodes.map(rect)),cost};
+        // Compare centre-to-centre travel: a side anchor must not win merely
+        // by hiding more of a nearly straight path inside the endpoint cards.
+        const endpointTravel=e.routing==='orthogonal'?0:Math.hypot(g.fromPt.x-a.x,g.fromPt.y-a.y)+Math.hypot(g.toPt.x-b.x,g.toPt.y-b.y);
+        const cost=length+endpointTravel+retreat*4+candidate.penalty+(preferred && !candidate.preferred?24:0);
+        return {g:decorate(withMidpoint(g),e,nodes.map(rect)),cost,ordered:candidate.preferred};
     }).sort((a,b)=>a.cost-b.cost || a.g.d.localeCompare(b.g.d));
 }
 function withMidpoint(g:Omit<EdgeGeom,'mid'>):EdgeGeom {
@@ -423,6 +439,9 @@ export function edgeGeometries(edges:readonly BoardEdge[],nodes:BoardNode[],heig
     for(const [id,group] of groups){
         if(group.length<2 || group.length>64)continue;
         group.sort((a,b)=>a.id.localeCompare(b.id));
+        // Start with the whole natural fan. Independent cheapest seeds can
+        // strand one branch behind another and force a straight-line escape.
+        for(const e of group){const ordered=choices.get(e.id)!.find(c=>c.ordered);if(ordered)selected.set(e.id,ordered);}
         const n=nodes.find(n=>n.id===id)!,join=expand({x:n.x,y:n.y,w:widths?.[id]??n.w,h:heights[id]??n.h??120},16);
         // Prefer fewer crossings lexicographically, then the shorter natural path.
         for(let pass=0;pass<2;pass++){
@@ -439,22 +458,13 @@ export function edgeGeometries(edges:readonly BoardEdge[],nodes:BoardNode[],heig
         }
     }
     const result=new Map([...selected].map(([id,c])=>[id,c.g]));
-    const rect=(n:BoardNode):Rect=>({x:n.x,y:n.y,w:widths?.[n.id]??n.w,h:heights[n.id]??n.h??120});
-    // Tail decoration is deliberately after route selection: the existing body,
-    // sibling order and obstacle corridor are not rescored for arrow appearance.
+    // Arrow decoration never replaces, bends or appends to the selected curve.
     for(const e of [...edges].sort((a,b)=>a.id.localeCompare(b.id))){
         const g=result.get(e.id);
         if(!g || !e.directed)continue;
-        const endpoints=nodes.filter(n=>n.id===e.from || n.id===e.to),obstacles=nodes.filter(n=>!endpoints.includes(n)).map(n=>expand(rect(n),CLEARANCE));
-        const tailArea=expand({x:g.toPt.x,y:g.toPt.y,w:0,h:0},80);
-        const peers=edges.filter(o=>o.id!==e.id && result.has(o.id) && result.get(o.id)!.points.slice(1).some((p,i)=>segmentTouchesRect(result.get(o.id)!.points[i],p,tailArea))).map(o=>{
-            const joins=endpoints.filter(n=>n.id===o.from || n.id===o.to).map(n=>expand(rect(n),16)),other=result.get(o.id)!;
-            return {other,joins,alreadyCrosses:crossing(g,other,joins)};
-        });
-        const safeTail=(points:Point[])=>points.every(p=>!endpoints.some(n=>insideNode(p,n,rect(n)))) && points.slice(1).every((p,i)=>clear(points[i],p,obstacles)) && !peers.some(p=>!p.alreadyCrosses && crossing({points},p.other,p.joins));
-        const terminal=arrowTerminal(g,safeTail,e.routing!=='orthogonal');
+        const terminal=arrowTerminal(g);
         if(e.kind==='association')terminal.strokeD=terminal.d;
-        result.set(e.id,decorate(withMidpoint({...g,...terminal,labelBox:undefined}),e,nodes.map(rect)));
+        result.set(e.id,{...g,...terminal});
     }
     return result;
 }

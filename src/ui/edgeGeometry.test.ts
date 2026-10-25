@@ -31,7 +31,7 @@ it.each([150, -150, 90, -90])("纵向单线从上下边竖直进出且不回折�
   }
 });
 
-it("不同实测宽高的错位卡片按各自边框法线连接", () => {
+it("不同实测宽高的错位卡片沿中心方向斜入边缘", () => {
   const nodes: BoardNode[] = [
     { id: "a", type: "text", markdown: "A", x: 0, y: 0, w: 100, h: 80 },
     { id: "b", type: "text", markdown: "B", x: 40, y: 200, w: 100, h: 80 },
@@ -40,8 +40,9 @@ it("不同实测宽高的错位卡片按各自边框法线连接", () => {
   const values = g.d.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
   const [x0,y0,x1,y1] = values;
   const [,,x2,y2,x3,y3] = values.slice(-6);
-  expect(x0).toBe(x1);
-  expect(x2).toBe(x3);
+  expect(x0).not.toBe(x1);
+  expect(x2).not.toBe(x3);
+  expect((x3-x2)*(250-y3)-(y3-y2)*(215-x3)).toBeCloseTo(0,7);
   expect(y1).toBeGreaterThan(y0);
   expect(y2).toBeLessThan(y3);
 });

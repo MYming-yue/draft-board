@@ -1,7 +1,7 @@
 {
   "name": "draft-board",
   "private": true,
-  "version": "0.2.4-dev.3",
+  "version": "0.2.4-dev.4",
   "description": "Local-first whiteboard for Markdown, equations, images, and connected thinking. Editable by people and agents.",
   "license": "MIT",
   "repository": {

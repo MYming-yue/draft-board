@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { launchBrowser, prepareFixtureOpen } from './browser.mjs';
 import { createEmptyBoard, edgeGeometries, readabilityConflicts, serializeBoard } from '../dist-model/index.js';
@@ -37,22 +37,34 @@ try {
             const current=await page.evaluate(()=>window.__state.file);
             const heights=Object.fromEntries(Object.entries(geometry).map(([id,r])=>[id,r.h])),widths=Object.fromEntries(Object.entries(geometry).map(([id,r])=>[id,r.w]));
             const expected=edgeGeometries(current.edges,current.nodes,heights,widths);
+            if(zoom===1)writeFileSync("artifacts/natural-curve-geometry.json",JSON.stringify({nodes:current.nodes,geometry,edges:current.edges,paths:[...expected]},null,2));
             for(const edge of current.edges){
                 const path=page.locator(`[data-edge-id="${edge.id}"] .edge-path`);
                 const actual=await path.getAttribute('d'),numbers=d=>d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g).map(Number);
                 assert.doesNotMatch(actual,/ [LQ] /);
+                assert.equal((actual.match(/ C /g)||[]).length,1,'clear branches stay one continuous cubic');
                 const observed=numbers(actual),wanted=numbers(expected.get(edge.id).strokeD ?? expected.get(edge.id).d);
                 assert.equal(observed.length,wanted.length,'same curve candidate in renderer and checker');
                 // CSS computed-size strings round ResizeObserver's fractional pixels.
                 observed.forEach((value,i)=>assert.ok(Math.abs(value-wanted[i])<.02,`${edge.id} coordinate ${i}: ${value} vs ${wanted[i]}`));
                 const points=await path.evaluate(el=>Array.from({length:201},(_,i)=>{const p=el.getPointAtLength(el.getTotalLength()*i/200);return{x:p.x,y:p.y};}));
                 assert.ok(points.slice(1).every((p,i)=>p.y>=points[i].y-1e-6),'downward branches must not develop upward hooks');
+                if(edge.id===current.edges.at(-1).id){
+                    const a=points[0],b=points.at(-1),length=Math.hypot(b.x-a.x,b.y-a.y);
+                    const bend=Math.max(...points.map(p=>Math.abs((p.x-a.x)*(b.y-a.y)-(p.y-a.y)*(b.x-a.x))/length));
+                    assert.ok(bend>8,'outer branch keeps a broad curve rather than collapsing to a straight escape');
+                }
                 const head=expected.get(edge.id).arrow;
                 const actualHead=numbers(await page.locator(`[data-edge-id="${edge.id}"] .edge-arrow`).getAttribute('d'));
                 [head.left.x,head.left.y,head.tip.x,head.tip.y,head.right.x,head.right.y].forEach((v,i)=>assert.ok(Math.abs(v-actualHead[i])<.02,'same arrow geometry in renderer and checker'));
-                const last=points.at(-1),previous=await path.evaluate(el=>{const p=el.getPointAtLength(el.getTotalLength()-1);return{x:p.x,y:p.y};});
-                assert.ok(Math.hypot(last.x-head.base.x,last.y-head.base.y)<.02,'visible ink ends at the centre of the head base');
-                assert.ok(Math.abs((last.x-previous.x)*(head.tip.y-head.base.y)-(last.y-previous.y)*(head.tip.x-head.base.x))<.02,'shaft meets the head in the same direction');
+                const last=points.at(-1),v={x:head.tip.x-head.base.x,y:head.tip.y-head.base.y};
+                const depth=((head.tip.x-last.x)*v.x+(head.tip.y-last.y)*v.y)/10;
+                const offset=Math.abs((last.x-head.tip.x)*v.y-(last.y-head.tip.y)*v.x)/10;
+                assert.ok(depth>0 && depth<10 && offset<3.5*depth/10,'ink joins inside the filled head');
+                const target=current.nodes.find(n=>n.id===edge.to),r=geometry[target.id];
+                const centre={x:target.x+r.w/2,y:target.y+r.h/2};
+                assert.ok(Math.abs(v.x*(centre.y-head.tip.y)-v.y*(centre.x-head.tip.x))<.1,'arrow points at actual card centre');
+
             }
             assert.deepEqual(readabilityConflicts(current,geometry),[],'actual browser dimensions leave paths clear');
             assert.equal(current.board.contentVersion,file.board.contentVersion,'derived paths add no history');
@@ -79,5 +91,5 @@ try {
         }
     }
     assert.deepEqual(errors,[]);
-    console.log('CURVE BRANCHES PASS: ordered branches and arrow/shaft alignment; fixed head size on selection; actual dimensions, long captions, structure view, 100%/70% zoom, shared geometry, PNG and no history changes.');
+    console.log('CURVE BRANCHES PASS: single smooth cubics, oblique centre-facing arrows and ordered branches; fixed head size on selection; actual dimensions, long captions, structure view, 100%/70% zoom, shared geometry, PNG and no history changes.');
 } finally { await browser?.close();server.kill(); }

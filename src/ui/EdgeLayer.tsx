@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BoardEdge, BoardNode } from "../model";
 import { visibleEdges } from "../model";
 
-import { edgeGeometry } from "../model/edgeRouting";
+import { edgeGeometries } from "../model/edgeRouting";
 export { edgeGeometry } from "../model/edgeRouting";
 export type { EdgeGeom } from "../model/edgeRouting";
 const EST_H = 120;
@@ -32,9 +32,10 @@ export function EdgeLayer(p: EdgeLayerProps) {
   }, [p.editingLabelId, p.edges]);
 
   const selected = new Set(p.selectedEdgeIds);
-  const shownEdges = visibleEdges(p.edges);
+  const shownEdges = useMemo(() => visibleEdges(p.edges), [p.edges]);
+  const geometries = useMemo(() => edgeGeometries(shownEdges, p.nodes, p.heights, p.widths), [shownEdges, p.nodes, p.heights, p.widths]);
   const editingEdge = p.editingLabelId ? p.edges.find((e) => e.id === p.editingLabelId) : null;
-  const editingMid = editingEdge ? (edgeGeometry(editingEdge, p.nodes, p.heights, p.widths, shownEdges)?.mid ?? null) : null;
+  const editingMid = editingEdge ? (geometries.get(editingEdge.id)?.mid ?? null) : null;
 
   return (
     <>
@@ -54,7 +55,7 @@ export function EdgeLayer(p: EdgeLayerProps) {
           </marker>
         </defs>
         {shownEdges.map((e) => {
-          const g = edgeGeometry(e, p.nodes, p.heights, p.widths, shownEdges);
+          const g = geometries.get(e.id);
           if (!g) return null;
           const isParent = e.kind === "parentChild";
           const isSel = selected.has(e.id);

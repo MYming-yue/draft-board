@@ -94,6 +94,39 @@ function ports(r: Rect, pad: number) {
     const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
     return [{ x: r.x + r.w + pad, y: cy }, { x: cx, y: r.y + r.h + pad }, { x: r.x - pad, y: cy }, { x: cx, y: r.y - pad }];
 }
+type Side = 0 | 1 | 2 | 3;
+type CurvePorts = { from: Point; to: Point; fromSide: Side; toSide: Side };
+const normals: Point[] = [{x:1,y:0},{x:0,y:1},{x:-1,y:0},{x:0,y:-1}];
+function facingSides(a: Rect, b: Rect): Side[] {
+    return ([0,1,2,3] as Side[]).filter(s => s===0 ? b.x>=a.x+a.w+8 : s===1 ? b.y>=a.y+a.h+8 : s===2 ? b.x+b.w+8<=a.x : b.y+b.h+8<=a.y);
+}
+function sidePort(r: Rect, side: Side, pad: number, fraction=.5, shape?: NodeShape): Point {
+    const p=side%2 ? {x:r.x+r.w*fraction,y:side===1?r.y+r.h:r.y} : {x:side===0?r.x+r.w:r.x,y:r.y+r.h*fraction};
+    return border(r,p,pad,shape);
+}
+/** One deterministic plan for siblings, independent of edge array/render order. */
+function siblingPorts(e: BoardEdge, nodes: BoardNode[], rect: (n:BoardNode)=>Rect, edges: readonly BoardEdge[]): CurvePorts | undefined {
+    if(e.kind!=='parentChild' || e.routing==='orthogonal')return;
+    const from=nodes.find(n=>n.id===e.from)!;
+    const children=edges.filter(o=>o.kind==='parentChild' && o.routing!=='orthogonal' && o.from===e.from)
+        .flatMap(o=>{const n=nodes.find(n=>n.id===o.to);return n?[{e:o,n,r:rect(n)}]:[];});
+    if(children.length<2)return;
+    const rf=rect(from), common=([0,1,2,3] as Side[]).filter(s=>children.every(c=>facingSides(rf,c.r).includes(s)));
+    if(!common.length)return;
+    // A row favours vertical fan-out; a column favours horizontal fan-out.
+    const span=(axis:'x'|'y')=>{const values=children.map(c=>c.r[axis]+(axis==='x'?c.r.w:c.r.h)/2);return Math.max(...values)-Math.min(...values);};
+    common.sort((a,b)=>(a%2 ? span('y') : span('x'))-(b%2 ? span('y') : span('x')) || a-b);
+    const side=common[0], axis=side%2?'x':'y';
+    children.sort((a,b)=>(a.r[axis]+(axis==='x'?a.r.w:a.r.h)/2)-(b.r[axis]+(axis==='x'?b.r.w:b.r.h)/2) || a.e.id.localeCompare(b.e.id));
+    const rank=children.findIndex(c=>c.e.id===e.id), child=children[rank], opposite=((side+2)%4) as Side;
+    return {from:sidePort(rf,side,2,(rank+1)/(children.length+1),from.shape),to:sidePort(child.r,opposite,6,.5,child.n.shape),fromSide:side,toSide:opposite};
+}
+function directCurve(p: CurvePorts, strength=.5): {d:string;points:Point[]} {
+    const {from:a,to:b}=p, n=normals[p.fromSide], m=normals[p.toSide];
+    const reach=Math.max(0,Math.abs(p.fromSide%2 ? b.y-a.y : b.x-a.x)*strength);
+    const c={x:a.x+n.x*reach,y:a.y+n.y*reach},d={x:b.x+m.x*reach,y:b.y+m.y*reach};
+    return {d:`M ${a.x} ${a.y} C ${c.x} ${c.y}, ${d.x} ${d.y}, ${b.x} ${b.y}`,points:curve([a,c,d,b])};
+}
 function simplify(points: Point[]): Point[] {
     const out: Point[] = [];
     for (const p of points) {
@@ -111,9 +144,11 @@ function simplify(points: Point[]): Point[] {
     return out;
 }
 /** Orthogonal visibility grid with a bend penalty. No card moves or persisted waypoints. */
-function route(rf: Rect, rt: Rect, others: Rect[], gap = CLEARANCE): Point[] | null {
+function route(rf: Rect, rt: Rect, others: Rect[], gap = CLEARANCE, preferred?: CurvePorts): Point[] | null {
     const obstacles = [rf, rt, ...others].map(r => expand(r, gap));
-    const starts = ports(rf, gap + 2), ends = ports(rt, gap + 2);
+    const actualStarts=preferred?[preferred.from]:ports(rf,2),actualEnds=preferred?[preferred.to]:ports(rt,6);
+    const starts = preferred ? [{x:preferred.from.x+normals[preferred.fromSide].x*gap,y:preferred.from.y+normals[preferred.fromSide].y*gap}] : ports(rf, gap + 2);
+    const ends = preferred ? [{x:preferred.to.x+normals[preferred.toSide].x*gap,y:preferred.to.y+normals[preferred.toSide].y*gap}] : ports(rt, gap + 2);
     const xs = [...new Set([...obstacles.flatMap(r => [r.x - 1, r.x + r.w + 1]), ...starts.map(p => p.x), ...ends.map(p => p.x)])].sort((a, b) => a - b);
     const ys = [...new Set([...obstacles.flatMap(r => [r.y - 1, r.y + r.h + 1]), ...starts.map(p => p.y), ...ends.map(p => p.y)])].sort((a, b) => a - b);
     // Bound pathological boards; callers report an unresolved path instead of freezing the UI.
@@ -121,8 +156,8 @@ function route(rf: Rect, rt: Rect, others: Rect[], gap = CLEARANCE): Point[] | n
         return null;
     const nx = xs.length, point = (id: number): Point => ({ x: xs[id % nx], y: ys[Math.floor(id / nx)] });
     const index = (p: Point) => ys.indexOf(p.y) * nx + xs.indexOf(p.x);
-    const validStarts = starts.map((p, i) => ({ p, i })).filter(({ p, i }) => clear(ports(rf, 2)[i], p, [rt, ...others].map(r => expand(r, gap))));
-    const validEnds = new Map(ends.map((p, i) => [index(p), i] as const).filter(([, i]) => clear(ends[i], ports(rt, 6)[i], [rf, ...others].map(r => expand(r, gap)))));
+    const validStarts = starts.map((p, i) => ({ p, i })).filter(({ p, i }) => clear(actualStarts[i], p, [rt, ...others].map(r => expand(r, gap))));
+    const validEnds = new Map(ends.map((p, i) => [index(p), i] as const).filter(([, i]) => clear(ends[i], actualEnds[i], [rf, ...others].map(r => expand(r, gap)))));
     const distance = new Map<number, number>(), previous = new Map<number, number>(), startPort = new Map<number, number>();
     type Entry = {
         key: number;
@@ -199,7 +234,7 @@ function route(rf: Rect, rt: Rect, others: Rect[], gap = CLEARANCE): Point[] | n
         key = before;
     }
     points.reverse();
-    return simplify([ports(rf, 2)[startPort.get(key)!], ...points, ports(rt, 6)[validEnds.get(Math.floor(goal / 3))!]]);
+    return simplify([actualStarts[startPort.get(key)!], ...points, actualEnds[validEnds.get(Math.floor(goal / 3))!]]);
 }
 function roundedPath(path: Point[]): {
     d: string;
@@ -218,33 +253,48 @@ function roundedPath(path: Point[]): {
     points.push(last);
     return { d, points };
 }
-/** Smooth tangents at every waypoint; unlike flow routing there are no line/elbow segments. */
+/** Fit inside the routing corridor, rather than interpolating its square corners.
+ * Convex Bezier controls cannot overshoot a horizontal/vertical run into a hook. */
 function curvedDetour(path: Point[], obstacles: Rect[]): {d:string;points:Point[]} | null {
-    const unit=(a:Point,b:Point)=>{const length=Math.hypot(b.x-a.x,b.y-a.y);return {x:(b.x-a.x)/(length||1),y:(b.y-a.y)/(length||1),length};};
-    const start=unit(path[0],path[1]),end=unit(path.at(-2)!,path.at(-1)!);
-    // Omit routing-grid port stubs when a broad arc can reach the clearance lane safely.
-    // This avoids a small outward hook before every detour.
-    const variants=path.length>=6?[path.filter((_,i)=>i!==1&&i!==path.length-2),path]:[path];
-    for (const waypoints of variants) for (const strength of [.55,.3,.12,.03]) {
-        const tangent=waypoints.map((p,i)=>{
-            if(i===0){const q=waypoints[1],length=Math.min(unit(p,q).length/3,Math.max(0,(q.x-p.x)*start.x+(q.y-p.y)*start.y)/2);return{x:start.x*length,y:start.y*length};}
-            if(i===waypoints.length-1){const q=waypoints[i-1],length=Math.min(unit(q,p).length/3,Math.max(0,(p.x-q.x)*end.x+(p.y-q.y)*end.y)/2);return{x:end.x*length,y:end.y*length};}
-            const a=unit(waypoints[i-1],p),b=unit(p,waypoints[i+1]),x=a.x+b.x,y=a.y+b.y,length=Math.hypot(x,y)||1;
-            const dx=x/length,dy=y/length;
-            let reach=Math.min(a.length,b.length)*strength;
-            for(const q of [waypoints[i-1],waypoints[i+1]]){
-                if(Math.abs(dx)>1e-9&&Math.abs(p.x-q.x)>1e-9)reach=Math.min(reach,Math.abs(p.x-q.x)/Math.abs(dx)/2);
-                if(Math.abs(dy)>1e-9&&Math.abs(p.y-q.y)>1e-9)reach=Math.min(reach,Math.abs(p.y-q.y)/Math.abs(dy)/2);
-            }
-            return{x:dx*reach,y:dy*reach};
-        });
-        let d=`M ${waypoints[0].x} ${waypoints[0].y}`;
-        const points=[waypoints[0]];
-        for(let i=1;i<waypoints.length;i++){
-            const a=waypoints[i-1],b=waypoints[i],c1={x:a.x+tangent[i-1].x,y:a.y+tangent[i-1].y},c2={x:b.x-tangent[i].x,y:b.y-tangent[i].y};
+    // Preserve endpoint normals; shortcut only the interior visibility-grid walk.
+    const short=path.slice(0,2);
+    for(let i=1;i<path.length-2;){
+        let next=i+1;
+        for(let j=path.length-2;j>i+1;j--)if(clear(path[i],path[j],obstacles)){next=j;break;}
+        short.push(path[next]);i=next;
+    }
+    short.push(path.at(-1)!);
+    // A clamped quadratic B-spline cuts across safe corners with broad arcs.
+    // Its controls stay inside the local corridor and its joins share tangents.
+    for(const waypoints of [simplify(short),path]){
+        let d=`M ${waypoints[0].x} ${waypoints[0].y}`,a=waypoints[0];
+        const points=[a];
+        for(let i=1;i<waypoints.length-1;i++){
+            const c=waypoints[i],next=waypoints[i+1],b=i===waypoints.length-2?next:{x:(c.x+next.x)/2,y:(c.y+next.y)/2};
+            const c1={x:a.x+2*(c.x-a.x)/3,y:a.y+2*(c.y-a.y)/3},c2={x:b.x+2*(c.x-b.x)/3,y:b.y+2*(c.y-b.y)/3};
             d+=` C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
-            points.push(...curve([a,c1,c2,b]).slice(1));
+            points.push(...curve([a,c1,c2,b]).slice(1));a=b;
         }
+        if(waypoints.length>2 && points.slice(1).every((p,i)=>clear(points[i],p,obstacles)))return{d,points};
+    }
+    for(const waypoints of [simplify(short),path])for(const strength of [.48,.3,.12,.03]){
+        let d=`M ${waypoints[0].x} ${waypoints[0].y}`, current=waypoints[0];
+        const points=[current];
+        const append=(a:Point,c1:Point,c2:Point,b:Point)=>{
+            if(Math.hypot(b.x-a.x,b.y-a.y)<1e-8)return;
+            d+=` C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
+            points.push(...curve([a,c1,c2,b]).slice(1));current=b;
+        };
+        const straight=(b:Point)=>{const a=current;append(a,{x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3},{x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3},b);};
+        for(let i=1;i<waypoints.length-1;i++){
+            const a=waypoints[i-1],b=waypoints[i],c=waypoints[i+1],ab=Math.hypot(b.x-a.x,b.y-a.y),bc=Math.hypot(c.x-b.x,c.y-b.y);
+            const radius=Math.min(ab,bc)*strength;
+            if(radius<1e-8)continue;
+            const entry={x:b.x+(a.x-b.x)*radius/ab,y:b.y+(a.y-b.y)*radius/ab},exit={x:b.x+(c.x-b.x)*radius/bc,y:b.y+(c.y-b.y)*radius/bc};
+            straight(entry);
+            append(entry,{x:entry.x+2*(b.x-entry.x)/3,y:entry.y+2*(b.y-entry.y)/3},{x:exit.x+2*(b.x-exit.x)/3,y:exit.y+2*(b.y-exit.y)/3},exit);
+        }
+        straight(waypoints.at(-1)!);
         if(points.slice(1).every((p,i)=>clear(points[i],p,obstacles)))return{d,points};
     }
     return null;
@@ -261,11 +311,12 @@ function decorate(g: EdgeGeom, e: BoardEdge, rects: Rect[]): EdgeGeom {
     }
     return { ...g, labelBox: { x: g.mid.x - w / 2, y: g.mid.y - 21, w, h } };
 }
-export function edgeGeometry(e: BoardEdge, nodes: BoardNode[], heights: Record<string, number>, widths?: Record<string, number>, edges: readonly BoardEdge[] = []): EdgeGeom | null {
+type Candidate = {g:EdgeGeom;cost:number};
+function edgeCandidates(e: BoardEdge, nodes: BoardNode[], heights: Record<string, number>, widths: Record<string, number> | undefined, edges: readonly BoardEdge[]): Candidate[] {
     const rect = (n: BoardNode): Rect => ({ x: n.x, y: n.y, w: widths?.[n.id] ?? n.w, h: heights[n.id] ?? n.h ?? 120 });
     const from = nodes.find(n => n.id === e.from), to = nodes.find(n => n.id === e.to);
     if (!from || !to)
-        return null;
+        return [];
     const rf = rect(from), rt = rect(to), a = { x: rf.x + rf.w / 2, y: rf.y + rf.h / 2 }, b = { x: rt.x + rt.w / 2, y: rt.y + rt.h / 2 };
     const reciprocal = e.kind === "association" && e.directed && edges.some(o => o.kind === "association" && o.directed && o.from === e.to && o.to === e.from);
     let fromPt: Point, toPt: Point, points: Point[], d: string;
@@ -290,18 +341,49 @@ export function edgeGeometry(e: BoardEdge, nodes: BoardNode[], heights: Record<s
         d = `M ${fromPt.x} ${fromPt.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${toPt.x} ${toPt.y}`;
     }
     const others = nodes.filter(n => n !== from && n !== to).map(rect), expanded = others.map(r => expand(r, CLEARANCE));
-    let routed = false;
-    if (points.slice(1).some((p, i) => !clear(points[i], p, expanded))) {
+    const preferred=siblingPorts(e,nodes,rect,edges), raw={fromPt,toPt,points,d,routed:false};
+    const safe=(g:{points:Point[]})=>g.points.slice(1).every((p,i)=>clear(g.points[i],p,expanded));
+    const available: {g:typeof raw;preferred:boolean}[]=[];
+    const add=(g:typeof raw,preferred=false)=>{if(safe(g) && !available.some(c=>c.g.d===g.d))available.push({g,preferred});};
+    const endpointSafe=(g:{points:Point[]})=>g.points.every(p=>![from,to].some(n=>{
+        const r=rect(n),dx=Math.abs(p.x-r.x-r.w/2),dy=Math.abs(p.y-r.y-r.h/2);
+        if(n.shape==='diamond')return dx/(r.w/2)+dy/(r.h/2)<1-1e-7;
+        if(n.shape==='pill'){
+            const radius=Math.min(r.w,r.h)/2,x=Math.max(0,dx-r.w/2+radius),y=Math.max(0,dy-r.h/2+radius);
+            return dx<r.w/2 && dy<r.h/2 && x*x+y*y<radius*radius-1e-7;
+        }
+        return dx<r.w/2-1e-7 && dy<r.h/2-1e-7;
+    }));
+    if(e.routing!=='orthogonal' && !reciprocal){
+        const choices:CurvePorts[]=[...(preferred?[preferred]:[]),...facingSides(rf,rt).map(side=>({from:sidePort(rf,side,2,.5,from.shape),to:sidePort(rt,((side+2)%4) as Side,6,.5,to.shape),fromSide:side,toSide:((side+2)%4) as Side}))];
+        for(const p of choices)for(const strength of [.5,.3]){
+            const shape=directCurve(p,strength),g={...shape,fromPt:p.from,toPt:p.to,routed:false};
+            if(endpointSafe(g))add(g,p===preferred);
+        }
+    }
+    add(raw);
+    if (!available.length || (preferred && !available.some(c=>c.preferred))) {
         const extra=reciprocal && e.from > e.to ? 20 : 0;
-        for(const gap of e.routing==='orthogonal'?[CLEARANCE+extra]:[48+extra,CLEARANCE+extra]){
-            const path=route(rf,rt,others,gap);
+        for(const preferredRoute of preferred?[preferred,undefined]:[undefined])for(const gap of e.routing==='orthogonal'?[CLEARANCE+extra]:[48+extra,CLEARANCE+extra]){
+            const path=route(rf,rt,others,gap,preferredRoute);
             if(!path)continue;
             const detour=e.routing==='orthogonal'?roundedPath(path):curvedDetour(path,[...expanded,rf,rt]);
             if(!detour)continue;
-            points=detour.points;fromPt=path[0];toPt=path.at(-1)!;d=detour.d;routed=true;
-            break;
+            add({...detour,fromPt:path[0],toPt:path.at(-1)!,routed:true},!!preferredRoute);
+            if(!preferred)break;
         }
     }
+    if(!available.length)available.push({g:raw,preferred:false});
+    return available.map(candidate=>{
+        const g=candidate.g,length=g.points.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p.x-g.points[i].x,p.y-g.points[i].y),0);
+        const direction=normals[preferred?.fromSide ?? facingSides(rf,rt)[0]];
+        const retreat=direction ? g.points.slice(1).reduce((sum,p,i)=>sum+Math.max(0,-(p.x-g.points[i].x)*direction.x-(p.y-g.points[i].y)*direction.y),0) : 0;
+        const cost=length+retreat*4+(preferred && !candidate.preferred?400:0);
+        return {g:decorate(withMidpoint(g),e,nodes.map(rect)),cost};
+    }).sort((a,b)=>a.cost-b.cost || a.g.d.localeCompare(b.g.d));
+}
+function withMidpoint(g:Omit<EdgeGeom,'mid'>):EdgeGeom {
+    const {points}=g;
     // Arc-length midpoint also works for detours with unequal segment lengths.
     const lengths = points.slice(1).map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y));
     let remaining = lengths.reduce((s, n) => s + n, 0) / 2, mid = points[0];
@@ -313,5 +395,47 @@ export function edgeGeometry(e: BoardEdge, nodes: BoardNode[], heights: Record<s
         }
         remaining -= lengths[i];
     }
-    return decorate({ fromPt, toPt, mid, d, points, routed }, e, nodes.map(rect));
+    return {...g,mid};
+}
+
+function crossing(a:EdgeGeom,b:EdgeGeom,join:Rect):boolean {
+    const inside=(p:Point)=>p.x>=join.x && p.x<=join.x+join.w && p.y>=join.y && p.y<=join.y+join.h;
+    for(let i=1;i<a.points.length;i++)for(let j=1;j<b.points.length;j++){
+        const p=a.points[i-1],q=a.points[i],r=b.points[j-1],s=b.points[j];
+        if(Math.max(p.x,q.x)<Math.min(r.x,s.x) || Math.max(r.x,s.x)<Math.min(p.x,q.x) || Math.max(p.y,q.y)<Math.min(r.y,s.y) || Math.max(r.y,s.y)<Math.min(p.y,q.y))continue;
+        const dx=q.x-p.x,dy=q.y-p.y,ex=s.x-r.x,ey=s.y-r.y,det=dx*ey-dy*ex;
+        if(Math.abs(det)<1e-9)continue;
+        const t=((r.x-p.x)*ey-(r.y-p.y)*ex)/det,u=((r.x-p.x)*dy-(r.y-p.y)*dx)/det;
+        if(t>=0 && t<=1 && u>=0 && u<=1 && !inside({x:p.x+t*dx,y:p.y+t*dy}))return true;
+    }
+    return false;
+}
+/** Compute once per scene: all consumers use the same bounded sibling selection. */
+export function edgeGeometries(edges:readonly BoardEdge[],nodes:BoardNode[],heights:Record<string,number>,widths?:Record<string,number>):Map<string,EdgeGeom> {
+    const choices=new Map(edges.map(e=>[e.id,edgeCandidates(e,nodes,heights,widths,edges)])),selected=new Map<string,Candidate>();
+    for(const [id,candidates] of choices)if(candidates.length)selected.set(id,candidates[0]);
+    const groups=new Map<string,BoardEdge[]>();
+    for(const e of edges)if(e.kind==='parentChild' && e.routing!=='orthogonal' && selected.has(e.id))groups.set(e.from,[...(groups.get(e.from)??[]),e]);
+    for(const [id,group] of groups){
+        if(group.length<2 || group.length>64)continue;
+        group.sort((a,b)=>a.id.localeCompare(b.id));
+        const n=nodes.find(n=>n.id===id)!,join=expand({x:n.x,y:n.y,w:widths?.[id]??n.w,h:heights[id]??n.h??120},16);
+        // Prefer fewer crossings lexicographically, then the shorter natural path.
+        for(let pass=0;pass<2;pass++){
+            let changed=false;
+            for(const e of group){
+                let best=selected.get(e.id)!,bestCross=group.filter(o=>o!==e && crossing(best.g,selected.get(o.id)!.g,join)).length;
+                for(const candidate of choices.get(e.id)!){
+                    const count=group.filter(o=>o!==e && crossing(candidate.g,selected.get(o.id)!.g,join)).length;
+                    if(count<bestCross || (count===bestCross && candidate.cost<best.cost)){best=candidate;bestCross=count;}
+                }
+                if(best!==selected.get(e.id)){selected.set(e.id,best);changed=true;}
+            }
+            if(!changed)break;
+        }
+    }
+    return new Map([...selected].map(([id,c])=>[id,c.g]));
+}
+export function edgeGeometry(e:BoardEdge,nodes:BoardNode[],heights:Record<string,number>,widths?:Record<string,number>,edges:readonly BoardEdge[]=[]):EdgeGeom|null {
+    return edgeGeometries(edges.some(o=>o.id===e.id)?edges.map(o=>o.id===e.id?e:o):[...edges,e],nodes,heights,widths).get(e.id)??null;
 }

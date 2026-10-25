@@ -1,4 +1,5 @@
 import type { BoardEdge, BoardNode, NodeShape } from "./types";
+import { arrowTerminal, type ArrowHead } from './edgeTerminals';
 export type Point = {
     x: number;
     y: number;
@@ -17,6 +18,8 @@ export interface EdgeGeom {
     points: Point[];
     routed: boolean;
     labelBox?: Rect;
+    strokeD?: string;
+    arrow?: ArrowHead;
 }
 const CLEARANCE = 12;
 const expand = (r: Rect, gap: number): Rect => ({ x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2 });
@@ -39,6 +42,15 @@ export function segmentTouchesRect(a: Point, b: Point, r: Rect): boolean {
     return true;
 }
 const clear = (a: Point, b: Point, rects: Rect[]) => !rects.some(r => segmentTouchesRect(a, b, r));
+function insideNode(p:Point,n:BoardNode,r:Rect):boolean {
+    const dx=Math.abs(p.x-r.x-r.w/2),dy=Math.abs(p.y-r.y-r.h/2);
+    if(n.shape==='diamond')return dx/(r.w/2)+dy/(r.h/2)<1-1e-7;
+    if(n.shape==='pill'){
+        const radius=Math.min(r.w,r.h)/2,x=Math.max(0,dx-r.w/2+radius),y=Math.max(0,dy-r.h/2+radius);
+        return dx<r.w/2 && dy<r.h/2 && x*x+y*y<radius*radius-1e-7;
+    }
+    return dx<r.w/2-1e-7 && dy<r.h/2-1e-7;
+}
 function border(r: Rect, p: Point, pad: number, shape?: NodeShape): Point {
     const cx = r.x + r.w / 2, cy = r.y + r.h / 2, dx = p.x - cx, dy = p.y - cy;
     if (!dx && !dy)
@@ -345,15 +357,7 @@ function edgeCandidates(e: BoardEdge, nodes: BoardNode[], heights: Record<string
     const safe=(g:{points:Point[]})=>g.points.slice(1).every((p,i)=>clear(g.points[i],p,expanded));
     const available: {g:typeof raw;preferred:boolean}[]=[];
     const add=(g:typeof raw,preferred=false)=>{if(safe(g) && !available.some(c=>c.g.d===g.d))available.push({g,preferred});};
-    const endpointSafe=(g:{points:Point[]})=>g.points.every(p=>![from,to].some(n=>{
-        const r=rect(n),dx=Math.abs(p.x-r.x-r.w/2),dy=Math.abs(p.y-r.y-r.h/2);
-        if(n.shape==='diamond')return dx/(r.w/2)+dy/(r.h/2)<1-1e-7;
-        if(n.shape==='pill'){
-            const radius=Math.min(r.w,r.h)/2,x=Math.max(0,dx-r.w/2+radius),y=Math.max(0,dy-r.h/2+radius);
-            return dx<r.w/2 && dy<r.h/2 && x*x+y*y<radius*radius-1e-7;
-        }
-        return dx<r.w/2-1e-7 && dy<r.h/2-1e-7;
-    }));
+    const endpointSafe=(g:{points:Point[]})=>g.points.every(p=>![from,to].some(n=>insideNode(p,n,rect(n))));
     if(e.routing!=='orthogonal' && !reciprocal){
         const choices:CurvePorts[]=[...(preferred?[preferred]:[]),...facingSides(rf,rt).map(side=>({from:sidePort(rf,side,2,.5,from.shape),to:sidePort(rt,((side+2)%4) as Side,6,.5,to.shape),fromSide:side,toSide:((side+2)%4) as Side}))];
         for(const p of choices)for(const strength of [.5,.3]){
@@ -398,8 +402,8 @@ function withMidpoint(g:Omit<EdgeGeom,'mid'>):EdgeGeom {
     return {...g,mid};
 }
 
-function crossing(a:EdgeGeom,b:EdgeGeom,join:Rect):boolean {
-    const inside=(p:Point)=>p.x>=join.x && p.x<=join.x+join.w && p.y>=join.y && p.y<=join.y+join.h;
+function crossing(a:Pick<EdgeGeom,'points'>,b:Pick<EdgeGeom,'points'>,joins:Rect|Rect[]):boolean {
+    const inside=(p:Point)=>(Array.isArray(joins)?joins:[joins]).some(join=>p.x>=join.x && p.x<=join.x+join.w && p.y>=join.y && p.y<=join.y+join.h);
     for(let i=1;i<a.points.length;i++)for(let j=1;j<b.points.length;j++){
         const p=a.points[i-1],q=a.points[i],r=b.points[j-1],s=b.points[j];
         if(Math.max(p.x,q.x)<Math.min(r.x,s.x) || Math.max(r.x,s.x)<Math.min(p.x,q.x) || Math.max(p.y,q.y)<Math.min(r.y,s.y) || Math.max(r.y,s.y)<Math.min(p.y,q.y))continue;
@@ -434,7 +438,25 @@ export function edgeGeometries(edges:readonly BoardEdge[],nodes:BoardNode[],heig
             if(!changed)break;
         }
     }
-    return new Map([...selected].map(([id,c])=>[id,c.g]));
+    const result=new Map([...selected].map(([id,c])=>[id,c.g]));
+    const rect=(n:BoardNode):Rect=>({x:n.x,y:n.y,w:widths?.[n.id]??n.w,h:heights[n.id]??n.h??120});
+    // Tail decoration is deliberately after route selection: the existing body,
+    // sibling order and obstacle corridor are not rescored for arrow appearance.
+    for(const e of [...edges].sort((a,b)=>a.id.localeCompare(b.id))){
+        const g=result.get(e.id);
+        if(!g || !e.directed)continue;
+        const endpoints=nodes.filter(n=>n.id===e.from || n.id===e.to),obstacles=nodes.filter(n=>!endpoints.includes(n)).map(n=>expand(rect(n),CLEARANCE));
+        const tailArea=expand({x:g.toPt.x,y:g.toPt.y,w:0,h:0},80);
+        const peers=edges.filter(o=>o.id!==e.id && result.has(o.id) && result.get(o.id)!.points.slice(1).some((p,i)=>segmentTouchesRect(result.get(o.id)!.points[i],p,tailArea))).map(o=>{
+            const joins=endpoints.filter(n=>n.id===o.from || n.id===o.to).map(n=>expand(rect(n),16)),other=result.get(o.id)!;
+            return {other,joins,alreadyCrosses:crossing(g,other,joins)};
+        });
+        const safeTail=(points:Point[])=>points.every(p=>!endpoints.some(n=>insideNode(p,n,rect(n)))) && points.slice(1).every((p,i)=>clear(points[i],p,obstacles)) && !peers.some(p=>!p.alreadyCrosses && crossing({points},p.other,p.joins));
+        const terminal=arrowTerminal(g,safeTail,e.routing!=='orthogonal');
+        if(e.kind==='association')terminal.strokeD=terminal.d;
+        result.set(e.id,decorate(withMidpoint({...g,...terminal,labelBox:undefined}),e,nodes.map(rect)));
+    }
+    return result;
 }
 export function edgeGeometry(e:BoardEdge,nodes:BoardNode[],heights:Record<string,number>,widths?:Record<string,number>,edges:readonly BoardEdge[]=[]):EdgeGeom|null {
     return edgeGeometries(edges.some(o=>o.id===e.id)?edges.map(o=>o.id===e.id?e:o):[...edges,e],nodes,heights,widths).get(e.id)??null;

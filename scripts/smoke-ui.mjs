@@ -440,7 +440,8 @@ const arrowInfo = await page.evaluate(() => {
   const s = window.__state;
   const paths = [...document.querySelectorAll("svg.edge-layer path.edge-path")].map((p) => {
     const nums = p.getAttribute("d").match(/-?\d+\.?\d*/g).map(Number);
-    return { endX: nums[nums.length - 2], endY: nums[nums.length - 1] };
+    const head=p.parentElement.querySelector('.edge-arrow'),headValues=head?.getAttribute('d').match(/-?\d+\.?\d*/g).map(Number);
+    return headValues ? {endX:headValues[2],endY:headValues[3]} : { endX: nums[nums.length - 2], endY: nums[nums.length - 1] };
   });
   const targets = s.file.edges.map((e) => {
     const el = document.querySelector(`[data-node-id="${e.to}"]`);

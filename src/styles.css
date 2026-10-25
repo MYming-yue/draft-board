@@ -616,6 +616,7 @@ body,
 }
 .edge-assoc { stroke: var(--edge-assoc); stroke-dasharray: 6 4; }
 .edge-parent { stroke: var(--edge-parent); }
+.edge-arrow { pointer-events:none; }
 .edge-stroke-solid { stroke-dasharray:none; }
 .edge-stroke-dashed, .edge-stroke-flowing-dashed { stroke-dasharray:6 4; }
 /* Paths always run from edge.from to edge.to; decreasing offset carries dashes toward the arrow. */

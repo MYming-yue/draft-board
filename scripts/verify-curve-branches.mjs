@@ -13,7 +13,7 @@ try {
         catch { if(i>60)throw new Error('Curve preview did not start');await new Promise(r=>setTimeout(r,200)); }
     }
     browser=await launchBrowser();
-    const page=await browser.newPage({viewport:{width:1800,height:900}}),errors=[];
+    const page=await browser.newPage({viewport:{width:1800,height:900},deviceScaleFactor:2}),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
     await page.addInitScript(()=>{delete window.showOpenFilePicker;delete window.showSaveFilePicker;});
     await page.goto(`http://127.0.0.1:${port}`,{waitUntil:'networkidle'});
@@ -23,7 +23,7 @@ try {
         file.board.view={panX:10,panY:20,zoom};
         file.nodes=[
             {id:'n_fanroot',type:'text',markdown:'一个主题，四个有序分支',caption:'先确定出入口，再生成自然曲线。\n\n连线按目标的左右顺序展开。',x:450,y:70,w:360,captionW:360},
-            ...[[6,330],[396,465],[922,405],[1412,330]].map(([x,w],i)=>({id:`n_fanchild${i}`,type:'text',markdown:`分支 ${i+1}`,caption:i===2?Array.from({length:9},(_,j)=>`说明 ${j+1}：长备注也参与实际外框测量。`).join('\n\n'):'保留内容和关系，只调整连线的生成。',x,y:500,w,captionW:w,captionExpanded:true})),
+            ...[[6,330],[396,465],[922,405],[1412,330]].map(([x,w],i)=>({id:`n_fanchild${i}`,type:'text',markdown:`分支 ${i+1}`,caption:i===2?Array.from({length:9},(_,j)=>`说明 ${j+1}：长备注也参与实际外框测量。`).join('\n\n'):'保留内容和关系，只调整连线的生成。',x,y:342,w,captionW:w,captionExpanded:true})),
         ];
         file.edges=file.nodes.slice(1).map((n,i)=>({id:`e_fanedge${i}`,kind:'parentChild',from:file.nodes[0].id,to:n.id,directed:true}));
         await prepareFixtureOpen(page);
@@ -41,12 +41,18 @@ try {
                 const path=page.locator(`[data-edge-id="${edge.id}"] .edge-path`);
                 const actual=await path.getAttribute('d'),numbers=d=>d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g).map(Number);
                 assert.doesNotMatch(actual,/ [LQ] /);
-                const observed=numbers(actual),wanted=numbers(expected.get(edge.id).d);
+                const observed=numbers(actual),wanted=numbers(expected.get(edge.id).strokeD ?? expected.get(edge.id).d);
                 assert.equal(observed.length,wanted.length,'same curve candidate in renderer and checker');
                 // CSS computed-size strings round ResizeObserver's fractional pixels.
                 observed.forEach((value,i)=>assert.ok(Math.abs(value-wanted[i])<.02,`${edge.id} coordinate ${i}: ${value} vs ${wanted[i]}`));
                 const points=await path.evaluate(el=>Array.from({length:201},(_,i)=>{const p=el.getPointAtLength(el.getTotalLength()*i/200);return{x:p.x,y:p.y};}));
                 assert.ok(points.slice(1).every((p,i)=>p.y>=points[i].y-1e-6),'downward branches must not develop upward hooks');
+                const head=expected.get(edge.id).arrow;
+                const actualHead=numbers(await page.locator(`[data-edge-id="${edge.id}"] .edge-arrow`).getAttribute('d'));
+                [head.left.x,head.left.y,head.tip.x,head.tip.y,head.right.x,head.right.y].forEach((v,i)=>assert.ok(Math.abs(v-actualHead[i])<.02,'same arrow geometry in renderer and checker'));
+                const last=points.at(-1),previous=await path.evaluate(el=>{const p=el.getPointAtLength(el.getTotalLength()-1);return{x:p.x,y:p.y};});
+                assert.ok(Math.hypot(last.x-head.base.x,last.y-head.base.y)<.02,'visible ink ends at the centre of the head base');
+                assert.ok(Math.abs((last.x-previous.x)*(head.tip.y-head.base.y)-(last.y-previous.y)*(head.tip.x-head.base.x))<.02,'shaft meets the head in the same direction');
             }
             assert.deepEqual(readabilityConflicts(current,geometry),[],'actual browser dimensions leave paths clear');
             assert.equal(current.board.contentVersion,file.board.contentVersion,'derived paths add no history');
@@ -54,6 +60,18 @@ try {
         await verify();
         await page.getByRole('button',{name:'结构视图',exact:true}).click();await verify();
         await page.getByRole('button',{name:'显示备注',exact:true}).click();await verify();
+        const targetId=file.edges.at(-1).id,head=page.locator(`[data-edge-id="${targetId}"] .edge-arrow`),body=page.locator(`[data-edge-id="${targetId}"] .edge-path`);
+        const beforeHead=await head.getAttribute('d'),beforeBody=await body.getAttribute('d'),beforeBox=await head.boundingBox();
+        const target=await body.evaluate(el=>{const p=el.getPointAtLength(el.getTotalLength()*.6),m=el.getScreenCTM();return{x:m.a*p.x+m.c*p.y+m.e,y:m.b*p.x+m.d*p.y+m.f};});
+        await page.mouse.click(target.x,target.y);
+        await page.waitForFunction(id=>window.__state.selection.edges.includes(id),targetId);
+        assert.equal(await head.getAttribute('d'),beforeHead,'selection does not enlarge or reshape the head');
+        assert.equal(await body.getAttribute('d'),beforeBody,'selection does not alter the curve');
+        const afterBox=await head.boundingBox();
+        assert.ok(Math.abs(afterBox.width-beforeBox.width)<.01 && Math.abs(afterBox.height-beforeBox.height)<.01,'arrow size stays fixed when the line thickens');
+        await page.mouse.click(1700,820);await verify();
+        const crop=await head.boundingBox();
+        await page.screenshot({path:`artifacts/arrow-terminal-${zoom}.png`,clip:{x:Math.floor(crop.x-80),y:Math.floor(crop.y-80),width:160,height:140}});
         await page.screenshot({path:`artifacts/curve-branches-${zoom}.png`,fullPage:true});
         if(zoom===1){
             const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'导出 PNG',exact:true}).click()]);
@@ -61,5 +79,5 @@ try {
         }
     }
     assert.deepEqual(errors,[]);
-    console.log('CURVE BRANCHES PASS: four ordered branches, actual dimensions, long captions, structure view, 100%/70% zoom, shared check/render geometry, PNG and no history changes.');
+    console.log('CURVE BRANCHES PASS: ordered branches and arrow/shaft alignment; fixed head size on selection; actual dimensions, long captions, structure view, 100%/70% zoom, shared geometry, PNG and no history changes.');
 } finally { await browser?.close();server.kill(); }

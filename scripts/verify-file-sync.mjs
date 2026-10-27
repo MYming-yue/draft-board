@@ -157,7 +157,7 @@ try {
   await page.evaluate(() => { window.showSaveFilePicker = async opts => { window.__suggestedCopyName = opts.suggestedName; throw new DOMException("cancelled", "AbortError"); }; });
   await page.getByRole("button", { name: "另存为", exact: true }).click();
   await page.waitForFunction(() => window.__state.saveState === "saved");
-  assert.equal(await page.evaluate(() => window.__suggestedCopyName), "sync-local-copy.draft", "ordinary Save As keeps the existing filename");
+  assert.equal(await page.evaluate(() => window.__suggestedCopyName), "共享草稿回归.draft", "ordinary Save As suggests the current board title");
   assert.deepEqual(readFileSync(paths[name]), externalBytes);
   assert.equal(parseBoard(readFileSync(paths[copy])).file.nodes.find(n => n.id === "n_primary1").markdown, "我的动量理解：中文输入仍在继续");
   await page.getByRole("button", { name: "打开", exact: true }).click();
@@ -181,7 +181,9 @@ try {
   const racedBytes = serializeBoard(raced.state, {});
   await page.evaluate(bytes => { window.__stageExternalBytes = bytes; }, [...racedBytes]);
   await page.locator(".board-name").fill("我的本地标题");
-  await page.keyboard.press("Control+s");
+  // Content autosave keeps the bound filename; explicit title renames have
+  // their own real FileSystem regression in smoke:names.
+  await page.locator('.board-name').press('Tab');
   await page.waitForFunction(() => window.__aborted === 1);
   assert.deepEqual(readFileSync(paths[name]), Buffer.from(racedBytes));
   assert.equal(await page.locator(".board-name").inputValue(), "我的本地标题");
@@ -217,9 +219,10 @@ try {
   await defaultPage.screenshot({ path: "artifacts/file-sync-default.png" });
   await defaultPage.evaluate(() => { window.__closeDelay = 2500; });
   await defaultPage.locator(".board-name").fill("保存中的第一版");
-  await defaultPage.keyboard.press("Control+s");
+  await defaultPage.locator('.board-name').press('Tab');
   await defaultPage.waitForFunction(() => window.__state.saveState === "saving");
   await defaultPage.locator(".board-name").fill("保存期间新增的第二版");
+  await defaultPage.locator('.board-name').press('Tab');
   await defaultPage.waitForFunction(() => window.__state.saveState === "saved");
   assert.equal(parseBoard(readFileSync(paths[name])).file.board.name, "保存期间新增的第二版");
   // Download fallback uses the same copy name and detaches the original handle.

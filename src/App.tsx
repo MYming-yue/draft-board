@@ -29,6 +29,9 @@ export default function App() {
   const [savingIO, setSavingIO] = useState(false);
   const currentState = useRef(state);
   currentState.current = state;
+  const fileNameBaseline=useRef(state.file.board.name);
+  const fileDirectory=useRef<FileSystemDirectoryHandle>();
+  useEffect(()=>{fileNameBaseline.current=currentState.current.file.board.name;fileDirectory.current=undefined;},[state.sessionId]);
   const openRequest = useRef(0);
   useFileSync(editor, diskBaseline, diskAssets, saveInFlight, layoutBusy);
   const dshBoard = useDshBoard(editor, layoutBusy);
@@ -135,15 +138,17 @@ export default function App() {
     if (choice.outcome === "accepted") setInstallPrompt(null);
   }, [installPrompt]);
 
-  const doSave = useCallback(async () => {
+  const doSave = useCallback(async (automatic=false) => {
     if (state.replay.active || saveInFlight.current || state.fileConflict || state.editingId || document.querySelector(".edge-label-input")) return;
+    if(automatic && document.activeElement?.matches('.board-name'))return;
     saveInFlight.current = true;
     setSavingIO(true);
     const stamp = { sessionId: state.sessionId, editRevision: state.editRevision };
     const previous = state.saveState;
     dispatch({ type: "markSaving" });
     try {
-      const result = await saveDraft(state, { expectedFile: diskBaseline.current ?? undefined, expectedBlobs: diskAssets.current });
+      const result = await saveDraft(state, { expectedFile: diskBaseline.current ?? undefined, expectedBlobs: diskAssets.current,
+        renameFile:!automatic && fileNameBaseline.current!==state.file.board.name,directory:fileDirectory.current });
       if (result.status === "cancelled") {
         dispatch({ type: "markSaveCancelled", stamp, previous });
         return;
@@ -152,6 +157,7 @@ export default function App() {
       if (currentState.current.sessionId !== stamp.sessionId) return;
       diskBaseline.current = state.file;
       diskAssets.current = state.blobs;
+      if(!automatic){fileNameBaseline.current=state.file.board.name;if(result.directory)fileDirectory.current=result.directory;}
       if (handle && handle !== state.fileHandle)
         dispatch({ type: "setHandle", handle, fileName: handle.name, stamp });
       dispatch({ type: "markSaved", stamp });
@@ -178,6 +184,7 @@ export default function App() {
       if (result.status === "saved") {
         diskBaseline.current = state.file;
         diskAssets.current = state.blobs;
+        fileNameBaseline.current=state.file.board.name;fileDirectory.current=undefined;
         dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle?.name ?? result.fileName ?? state.fileName, stamp });
         dispatch({ type: "setFileConflict", sessionId: stamp.sessionId, message: null });
         dispatch({ type: "dismissExternal" });
@@ -208,7 +215,7 @@ export default function App() {
   // 自动保存：末次修改后 1.5s（目标 ≤2s，§6.2）
   const saveRef = useRef(doSave);
   saveRef.current = doSave;
-  const autosaveFn = useCallback(() => saveRef.current(), []);
+  const autosaveFn = useCallback(() => saveRef.current(true), []);
   useAutosave(state, autosaveFn, savingIO);
 
   // Ctrl+S 全局保存

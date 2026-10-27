@@ -209,7 +209,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
       };
     }
     case "rename": {
-      if (!a.name.trim()) return s;
+        if (!a.name.trim() || a.name.trim() === s.file.board.name) return s;
       return {
         ...s,
         file: { ...s.file, board: { ...s.file.board, name: a.name.trim() } },

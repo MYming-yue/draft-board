@@ -267,7 +267,7 @@ try {
     namingPage.waitForEvent("download"),
     namingPage.getByRole("button", { name: "保存", exact: true }).click(),
   ]);
-  assert.equal(existingSave.suggestedFilename(), "磁盘文件.draft", "打开已有文件后改标题不擅自改文件名");
+  assert.equal(existingSave.suggestedFilename(), "文件内部标题.draft", "无句柄下载使用当前白板名称，原磁盘文件由浏览器保留");
   await namingPage.close();
   assert.deepEqual(errors, []);
   console.log("CONCEPT CARDS PASS: compact core, visible notes, recent-card stacking, ordered list, atomic edit, structure view, edges, save, undo, zoom");

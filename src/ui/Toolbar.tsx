@@ -3,6 +3,7 @@ import type { EditorApi } from "./store";
 import { HistoryIcon } from "./HistoryIcon";
 import { AppearanceControls } from './AppearanceControls';
 import { version } from '../../package.json';
+import { BoardNameInput } from './BoardNameInput';
 
 interface ToolbarProps {
   editor: EditorApi;
@@ -70,12 +71,7 @@ export function Toolbar(p: ToolbarProps) {
     <div className="toolbar">
       <span id="collection-controls" className="collection-controls" />
       <span className="brand" title={`版本 ${version} · 支持草稿格式 1.0 / 2.0 / 3.0`}>草稿白板 <small className="app-version">v{version}</small></span>
-      <input
-        className="board-name"
-        value={state.file.board.name}
-        onChange={(e) => dispatch({ type: "rename", name: e.target.value })}
-        title="白板名称"
-      />
+      <BoardNameInput editor={p.editor}/>
       <button onClick={p.onNew}>新建</button>
       <button onClick={p.onOpen}>打开</button>
       <button onClick={p.onSave} disabled={!!state.fileConflict} title={state.fileConflict ? "磁盘有外部更新，请先另存本地副本" : "Ctrl+S"}>保存</button>

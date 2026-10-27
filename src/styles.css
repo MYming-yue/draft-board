@@ -59,6 +59,7 @@ body,
   font-size: 14px;
   margin-right: 4px;
 }
+.board-name::placeholder { color: var(--text-dim); opacity: .5; }
 .board-name {
   width: 160px;
   padding: 4px 8px;

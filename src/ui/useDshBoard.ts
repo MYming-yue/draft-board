@@ -166,7 +166,7 @@ export function useDshBoard(editor: EditorApi, layoutBusy: boolean) {
       if (stopped) return;
       const bundle = parseBoard(decode(snapshot.data));
       baseline.current = { bundle, revision: snapshot.revision, sessionId: null };
-      latest.current.editor.dispatch({ type: "load", bundle, handle: null, fileName: snapshot.fileName });
+      latest.current.editor.dispatch({ type: "load", bundle, handle: null, fileName: snapshot.fileName, restoreFileBinding:true });
       setLoading(false); setStatus("已同步");
       void request<{task:LayoutTask|null}>('layout').then(result=>{if(!stopped && result.task?.boardId===bundle.file.board.id)setLayoutTask(result.task);}).catch(()=>{});
       timer = setTimeout(tick, 750);

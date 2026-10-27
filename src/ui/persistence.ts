@@ -13,6 +13,7 @@ import {
 import { sameDraftAssets, sameDraftContent } from "./externalChanges";
 import type { EditorState } from "./store";
 import { renameDraftFile } from './renameDraftFile';
+import { fileFingerprint } from './fileBindings';
 
 declare global {
   interface Window {
@@ -39,16 +40,17 @@ export interface OpenedDraft {
   bundle: DraftBundle;
   handle: FileSystemFileHandle | null;
   fileName: string;
+  fingerprint?:string;
 }
 
 export type SaveResult =
-  | { status: "saved"; handle: FileSystemFileHandle | null; fileName?: string; directory?:FileSystemDirectoryHandle }
+  | { status: "saved"; handle: FileSystemFileHandle | null; fileName?: string; directory?:FileSystemDirectoryHandle; fingerprint?:string }
   | { status: "cancelled" };
 
 export async function openDraftHandle(handle: FileSystemFileHandle): Promise<OpenedDraft> {
   const file = await handle.getFile();
-  const bundle = parseBoard(new Uint8Array(await file.arrayBuffer()));
-  return { bundle, handle, fileName: file.name };
+  const bytes=new Uint8Array(await file.arrayBuffer()),bundle = parseBoard(bytes);
+  return { bundle, handle, fileName: file.name, fingerprint:await fileFingerprint(bytes) };
 }
 
 export async function openDraft(): Promise<OpenedDraft | null> {
@@ -127,7 +129,7 @@ export async function saveDraft(
   if(opts.renameFile && state.fileHandle && !opts.forcePicker && !opts.copy && originalName!==state.fileHandle.name){
     try {
       const result=await renameDraftFile({source:state.fileHandle,name:originalName,bytes,expectedFile:opts.expectedFile,expectedBlobs:opts.expectedBlobs,directory:opts.directory});
-      return {status:'saved',...result,fileName:result.handle.name};
+      return {status:'saved',...result,fileName:result.handle.name,fingerprint:await fileFingerprint(bytes)};
     }catch(error){if((error as DOMException).name==='AbortError')return {status:'cancelled'};throw error;}
   }
   let handle = opts.forcePicker || opts.copy ? null : state.fileHandle;
@@ -166,7 +168,7 @@ export async function saveDraft(
       try { await w.abort(); } catch { /* Preserve the original save error. */ }
       throw error;
     }
-    return { status: "saved", handle };
+    return { status: "saved", handle, fingerprint:await fileFingerprint(bytes) };
   }
   // 无 FS Access：下载兜底（浏览器下载目录写入由浏览器保证完整）
   download(bytes, suggested);

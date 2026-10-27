@@ -33,6 +33,7 @@ export interface EditorState {
   editingId: string | null;
   clipboard: { nodeIds: string[] } | null; // 内部卡片剪贴板（复制粘贴一组卡片）
   fileHandle: FileSystemFileHandle | null;
+  restoreFileBinding: boolean; // Only a host-restored board may revive a remembered disk binding.
   fileName: string; // 展示与下载用文件名
   fileNameTracksBoardName: boolean; // 新建白板首次保存前，建议文件名随白板名变化
   saveState: SaveState;
@@ -55,7 +56,7 @@ export type Action =
   | { type: "setClipboard"; nodeIds: string[] }
   | { type: "setView"; panX: number; panY: number; zoom: number }
   | { type: "rename"; name: string }
-  | { type: "load"; bundle: DraftBundle; handle: FileSystemFileHandle | null; fileName: string }
+  | { type: "load"; bundle: DraftBundle; handle: FileSystemFileHandle | null; fileName: string; restoreFileBinding?:boolean }
   | { type: "newBoard" }
   | { type: "setFileConflict"; sessionId: string; message: string | null }
   | { type: "receiveExternal"; bundle: DraftBundle; stamp: SaveStamp; changes: ExternalChanges; pendingFileSave?: boolean }
@@ -90,6 +91,7 @@ export function initialEditorState(): EditorState {
     editingId: null,
     clipboard: null,
     fileHandle: null,
+    restoreFileBinding: false,
     fileName: "未命名白板.draft",
     fileNameTracksBoardName: true,
     saveState: "clean",
@@ -227,6 +229,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
         blobUrls: makeBlobUrls(a.bundle.blobs),
         cursor: a.bundle.file.history.length,
         fileHandle: a.handle,
+        restoreFileBinding: a.restoreFileBinding??false,
         fileName: a.fileName,
         fileNameTracksBoardName: false,
         saveState: "clean",
@@ -238,7 +241,7 @@ export function editorReducer(s: EditorState, a: Action): EditorState {
     }
     case "setHandle":
       if (s.sessionId !== a.stamp.sessionId) return s;
-      return { ...s, fileHandle: a.handle, fileName: a.fileName, fileNameTracksBoardName: false };
+      return { ...s, fileHandle: a.handle, restoreFileBinding:false, fileName: a.fileName, fileNameTracksBoardName: false };
     case "markSaving":
       return { ...s, saveState: "saving" };
     case "markSaved":

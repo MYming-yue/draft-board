@@ -60,6 +60,7 @@ body,
   margin-right: 4px;
 }
 .board-name::placeholder { color: var(--text-dim); opacity: .5; }
+.file-binding-notice { padding: 6px 12px; color: var(--text-dim); font-size: 12px; }
 .board-name {
   width: 160px;
   padding: 4px 8px;

@@ -1,5 +1,6 @@
 import { parseBoard, type BoardFile } from '../model';
 import { sameDraftAssets, sameDraftContent } from './externalChanges';
+import { requestBindingPermission } from './fileBindings';
 
 interface RenameOptions {
     source: FileSystemFileHandle;
@@ -17,6 +18,7 @@ export async function renameDraftFile(options:RenameOptions):Promise<{handle:Fil
     const {source,name,bytes}=options;
     if(!options.directory && !window.showDirectoryPicker)throw new Error('此浏览器不支持文件夹授权，请用“另存为”保存新名称；原文件保持。');
     let directory=options.directory ?? await window.showDirectoryPicker!({mode:'readwrite',startIn:source,id:'draft-rename'});
+    await requestBindingPermission(directory);
     const relative=await directory.resolve(source);
     if(!relative?.length)throw new Error('请选择原草稿所在的文件夹；原文件保持。');
     for(const part of relative.slice(0,-1))directory=await directory.getDirectoryHandle(part);

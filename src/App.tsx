@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DraftError, type BoardFile } from "./model";
 import { Canvas } from "./ui/Canvas";
 import { exportBoardPng } from "./ui/exportPng";
-import { openDraft, openDraftHandle, saveDraft, useAutosave } from "./ui/persistence";
+import { openDraft, openDraftHandle, saveDraft, useAutosave, type SaveResult, type OpenedDraft } from "./ui/persistence";
+import { matchingDirectory, readFileBinding, removeFileBinding, requestBindingPermission, restoreFileBinding, sameFileEntry, writeFileBinding, type SavedFileBinding } from './ui/fileBindings';
 import { ReplayBar } from "./ui/ReplayBar";
 import { useEditor } from "./ui/store";
 import { Toolbar } from "./ui/Toolbar";
@@ -31,7 +32,44 @@ export default function App() {
   currentState.current = state;
   const fileNameBaseline=useRef(state.file.board.name);
   const fileDirectory=useRef<FileSystemDirectoryHandle>();
-  useEffect(()=>{fileNameBaseline.current=currentState.current.file.board.name;fileDirectory.current=undefined;},[state.sessionId]);
+  const bindingRead=useRef<Promise<SavedFileBinding|null>>(Promise.resolve(null));
+  const [bindingWarning,setBindingWarning]=useState<string|null>(null);
+  const openBindingWarning=useRef<string|null>(null);
+  useEffect(()=>{
+    const sessionId=state.sessionId;
+    fileNameBaseline.current=state.file.board.name;fileDirectory.current=undefined;setBindingWarning(openBindingWarning.current);openBindingWarning.current=null;
+    bindingRead.current=readFileBinding(state.file.board.id).catch(()=>{
+      if(currentState.current.sessionId===sessionId)setBindingWarning('浏览器未能读取记住的文件位置；本次仍可通过“打开／另存为”选择文件。');
+      return null;
+    });
+  },[state.sessionId,state.file.board.id]);
+  const rememberOpened=useCallback(async(opened:OpenedDraft,canWrite:()=>boolean)=>{
+    try{
+      const boardId=opened.bundle.file.board.id;
+      if(!opened.handle || !opened.fingerprint){await removeFileBinding(boardId,canWrite);return null;}
+      const remembered=await readFileBinding(boardId),same=remembered && await sameFileEntry(remembered.handle,opened.handle);
+      await writeFileBinding({version:1,boardId,handle:opened.handle,fingerprint:opened.fingerprint,
+        boardName:same?remembered.boardName:opened.bundle.file.board.name,directory:await matchingDirectory(remembered?.directory,opened.handle)},canWrite);
+      return null;
+    }catch{return '文件已打开，但浏览器未能更新文件绑定；刷新前请重新选择目标文件。';}
+  },[]);
+  const rememberSaved=useCallback(async(result:Extract<SaveResult,{status:'saved'}>,saved:typeof state,boardName:string,directory?:FileSystemDirectoryHandle)=>{
+    const canWrite=()=>currentState.current.sessionId===saved.sessionId;
+    if(!canWrite())return;
+    try{
+      if(!result.handle){
+        await removeFileBinding(saved.file.board.id,canWrite);
+        if(currentState.current.sessionId===saved.sessionId){bindingRead.current=Promise.resolve(null);setBindingWarning(null);}
+        return;
+      }
+      if(!result.fingerprint)return;
+      const record:SavedFileBinding={version:1,boardId:saved.file.board.id,handle:result.handle,directory,boardName,fingerprint:result.fingerprint};
+      await writeFileBinding(record,canWrite);
+      if(currentState.current.sessionId===saved.sessionId){bindingRead.current=Promise.resolve(record);setBindingWarning(null);}
+    }catch{
+      if(currentState.current.sessionId===saved.sessionId)setBindingWarning(result.handle?'文件已保存，但浏览器未能记住文件位置；刷新后可能需要重新打开该文件。':'下载已完成，但浏览器未能清除旧文件绑定；刷新前请重新打开目标文件。');
+    }
+  },[]);
   const openRequest = useRef(0);
   useFileSync(editor, diskBaseline, diskAssets, saveInFlight, layoutBusy);
   const dshBoard = useDshBoard(editor, layoutBusy);
@@ -79,13 +117,16 @@ export default function App() {
     try {
       const opened = await openDraft();
       if (!opened || openRequest.current !== requestId || currentState.current.sessionId !== sessionId) return;
+      const warning=await rememberOpened(opened,()=>openRequest.current===requestId && currentState.current.sessionId===sessionId);
+      if(openRequest.current!==requestId || currentState.current.sessionId!==sessionId)return;
+      openBindingWarning.current=warning;
       diskBaseline.current = opened.bundle.file;
       diskAssets.current = opened.bundle.blobs;
       dispatch({ type: "load", bundle: opened.bundle, handle: opened.handle, fileName: opened.fileName });
     } catch (e) {
       if (openRequest.current === requestId && currentState.current.sessionId === sessionId) reportError(e);
     }
-  }, [dispatch, reportError]);
+  }, [dispatch, reportError, rememberOpened]);
 
   // 已安装 PWA 从 Windows 双击 .draft 启动时，Chromium 会把真实文件句柄放入 launchQueue。
   const openLaunchedFile = useCallback(
@@ -97,6 +138,9 @@ export default function App() {
       try {
         const opened = await openDraftHandle(handle);
         if (openRequest.current !== requestId || currentState.current.sessionId !== sessionId) return;
+        const warning=await rememberOpened(opened,()=>openRequest.current===requestId && currentState.current.sessionId===sessionId);
+        if(openRequest.current!==requestId || currentState.current.sessionId!==sessionId)return;
+        openBindingWarning.current=warning;
         diskBaseline.current = opened.bundle.file;
         diskAssets.current = opened.bundle.blobs;
         dispatch({ type: "load", bundle: opened.bundle, handle: opened.handle, fileName: opened.fileName });
@@ -104,7 +148,7 @@ export default function App() {
         if (openRequest.current === requestId && currentState.current.sessionId === sessionId) reportError(error);
       }
     },
-    [dispatch, reportError],
+    [dispatch, reportError, rememberOpened],
   );
   const launchOpenRef = useRef(openLaunchedFile);
   launchOpenRef.current = openLaunchedFile;
@@ -147,25 +191,44 @@ export default function App() {
     const previous = state.saveState;
     dispatch({ type: "markSaving" });
     try {
-      const result = await saveDraft(state, { expectedFile: diskBaseline.current ?? undefined, expectedBlobs: diskAssets.current,
-        renameFile:!automatic && fileNameBaseline.current!==state.file.board.name,directory:fileDirectory.current });
+      let savedState=state,expectedFile=diskBaseline.current??undefined,expectedBlobs=diskAssets.current;
+      let nameAtBinding=fileNameBaseline.current,directory=fileDirectory.current;
+      const remembered=await bindingRead.current;
+      if(remembered?.boardId===state.file.board.id){
+        if(state.fileHandle && await sameFileEntry(state.fileHandle,remembered.handle)){
+          nameAtBinding=remembered.boardName;directory??=remembered.directory;
+        }else if(!state.fileHandle && !automatic && state.restoreFileBinding){
+          const restored=await restoreFileBinding(remembered,state.file.board.id);
+          savedState={...state,fileHandle:remembered.handle,fileName:remembered.handle.name};
+          expectedFile=restored.file;expectedBlobs=restored.blobs;
+          nameAtBinding=remembered.boardName;directory=remembered.directory;
+        }
+      }
+      if(!automatic && savedState.fileHandle){
+        if(directory)await requestBindingPermission(directory);
+        await requestBindingPermission(savedState.fileHandle);
+      }
+      const result = await saveDraft(savedState, { expectedFile, expectedBlobs,
+        renameFile:!automatic && nameAtBinding!==state.file.board.name,directory });
       if (result.status === "cancelled") {
         dispatch({ type: "markSaveCancelled", stamp, previous });
         return;
       }
       const handle = result.handle;
+      const savedName=automatic?nameAtBinding:state.file.board.name,savedDirectory=result.directory??directory;
+      await rememberSaved(result,state,savedName,savedDirectory);
       if (currentState.current.sessionId !== stamp.sessionId) return;
       diskBaseline.current = state.file;
       diskAssets.current = state.blobs;
-      if(!automatic){fileNameBaseline.current=state.file.board.name;if(result.directory)fileDirectory.current=result.directory;}
-      if (handle && handle !== state.fileHandle)
-        dispatch({ type: "setHandle", handle, fileName: handle.name, stamp });
+      fileNameBaseline.current=savedName;fileDirectory.current=savedDirectory;
+      if ((handle && handle !== state.fileHandle) || (!handle && result.fileName))
+        dispatch({ type: "setHandle", handle, fileName: handle?.name??result.fileName!, stamp });
       dispatch({ type: "markSaved", stamp });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
     } finally { saveInFlight.current = false; setSavingIO(false); }
-  }, [state, dispatch]);
+  }, [state, dispatch, rememberSaved]);
 
   const doSaveAs = useCallback(async () => {
     if (saveInFlight.current || state.replay.active || state.editingId || document.querySelector(".edge-label-input")) return;
@@ -182,9 +245,13 @@ export default function App() {
         return;
       }
       if (result.status === "saved") {
+        const remembered=await bindingRead.current;
+        const directory=result.handle?await matchingDirectory(fileDirectory.current??(remembered?.boardId===state.file.board.id?remembered.directory:undefined),result.handle):undefined;
+        await rememberSaved(result,state,state.file.board.name,directory);
+        if(currentState.current.sessionId!==stamp.sessionId)return;
         diskBaseline.current = state.file;
         diskAssets.current = state.blobs;
-        fileNameBaseline.current=state.file.board.name;fileDirectory.current=undefined;
+        fileNameBaseline.current=state.file.board.name;fileDirectory.current=directory;
         dispatch({ type: "setHandle", handle: result.handle, fileName: result.handle?.name ?? result.fileName ?? state.fileName, stamp });
         dispatch({ type: "setFileConflict", sessionId: stamp.sessionId, message: null });
         dispatch({ type: "dismissExternal" });
@@ -194,7 +261,7 @@ export default function App() {
       const msg = e instanceof Error ? e.message : String(e);
       dispatch({ type: "markSaveError", stamp, message: `保存失败：${msg}（内容仍在内存中，可另存为）` });
     } finally { saveInFlight.current = false; setSavingIO(false); }
-  }, [state, dispatch]);
+  }, [state, dispatch, rememberSaved]);
 
   const doExportStrip = useCallback(async () => {
     try {
@@ -290,6 +357,7 @@ export default function App() {
         onToggleStructure={() => setStructureView((v) => !v)}
         onInstall={installPrompt ? () => void doInstall() : undefined}
       />
+      {bindingWarning && <div className="file-binding-notice" role="status">{bindingWarning}</div>}
       <FileUpdates editor={editor} onSaveCopy={() => void doSaveAs()} />
       {dshBoard.error && <div className="file-updates conflict" role="alert">DSH 同步：{dshBoard.error}</div>}
       <Canvas editor={editor} fitNonce={fitNonce} layoutFit={layoutFit} structureView={structureView} />

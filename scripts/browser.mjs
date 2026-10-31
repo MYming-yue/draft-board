@@ -25,9 +25,7 @@ export async function launchBrowser() {
   for (const candidate of candidates) {
     try {
       const browser = await chromium.launch({
-        // Select full Chromium/new headless, matching Chrome/Edge for file handles.
-        // https://playwright.dev/docs/browsers#chromium-new-headless-mode
-        channel: candidate,
+        ...(candidate === "chromium" ? {} : { channel: candidate }),
         headless: true,
       });
       console.log(`Browser: ${candidate} ${browser.version()}`);

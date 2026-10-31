@@ -8,12 +8,16 @@ import {
   stripHistory,
   type DraftBundle,
   type BoardFile,
+  draftFileName,
 } from "../model";
 import { sameDraftAssets, sameDraftContent } from "./externalChanges";
 import type { EditorState } from "./store";
+import { renameDraftFile } from './renameDraftFile';
+import { fileFingerprint } from './fileBindings';
 
 declare global {
   interface Window {
+    showDirectoryPicker?: (opts?: {mode?:'read'|'readwrite';startIn?:FileSystemHandle;id?:string})=>Promise<FileSystemDirectoryHandle>;
     showSaveFilePicker?: (opts?: {
       suggestedName?: string;
       types?: { description: string; accept: Record<string, string[]> }[];
@@ -36,16 +40,17 @@ export interface OpenedDraft {
   bundle: DraftBundle;
   handle: FileSystemFileHandle | null;
   fileName: string;
+  fingerprint?:string;
 }
 
 export type SaveResult =
-  | { status: "saved"; handle: FileSystemFileHandle | null; fileName?: string }
+  | { status: "saved"; handle: FileSystemFileHandle | null; fileName?: string; directory?:FileSystemDirectoryHandle; fingerprint?:string }
   | { status: "cancelled" };
 
 export async function openDraftHandle(handle: FileSystemFileHandle): Promise<OpenedDraft> {
   const file = await handle.getFile();
-  const bundle = parseBoard(new Uint8Array(await file.arrayBuffer()));
-  return { bundle, handle, fileName: file.name };
+  const bytes=new Uint8Array(await file.arrayBuffer()),bundle = parseBoard(bytes);
+  return { bundle, handle, fileName: file.name, fingerprint:await fileFingerprint(bytes) };
 }
 
 export async function openDraft(): Promise<OpenedDraft | null> {
@@ -90,11 +95,11 @@ function download(bytes: Uint8Array, fileName: string) {
 /** 保存到既有 handle；无 handle 时另存（弹窗或下载兜底）。取消选择不算已保存。 */
 export async function saveDraft(
   state: Pick<EditorState, "file" | "blobs" | "fileHandle" | "fileName">,
-  opts: { forcePicker?: boolean; copy?: boolean; historyMode?: "full" | "strip"; expectedFile?: BoardFile; expectedBlobs?: Record<string, Uint8Array>; forbiddenHandle?: FileSystemFileHandle } = {},
+  opts: { forcePicker?: boolean; copy?: boolean; historyMode?: "full" | "strip"; expectedFile?: BoardFile; expectedBlobs?: Record<string, Uint8Array>; forbiddenHandle?: FileSystemFileHandle; renameFile?:boolean; directory?:FileSystemDirectoryHandle } = {},
 ): Promise<SaveResult> {
   const file = opts.historyMode === "strip" ? stripHistory(state.file) : state.file;
   const bytes = serializeBoard(file, state.blobs);
-  const originalName = state.fileName || `${state.file.board.name}.draft`;
+  const originalName = opts.copy ? state.fileName || draftFileName(state.file.board.name) : draftFileName(state.file.board.name);
   const suggested = opts.copy ? `${originalName.replace(/\.draft$/i, "")}-副本.draft` : originalName;
 
   if (opts.historyMode === "strip") {
@@ -121,6 +126,12 @@ export async function saveDraft(
     return { status: "saved", handle: null };
   }
 
+  if(opts.renameFile && state.fileHandle && !opts.forcePicker && !opts.copy && originalName!==state.fileHandle.name){
+    try {
+      const result=await renameDraftFile({source:state.fileHandle,name:originalName,bytes,expectedFile:opts.expectedFile,expectedBlobs:opts.expectedBlobs,directory:opts.directory});
+      return {status:'saved',...result,fileName:result.handle.name,fingerprint:await fileFingerprint(bytes)};
+    }catch(error){if((error as DOMException).name==='AbortError')return {status:'cancelled'};throw error;}
+  }
   let handle = opts.forcePicker || opts.copy ? null : state.fileHandle;
   if (!handle && window.showSaveFilePicker) {
     try {
@@ -157,7 +168,7 @@ export async function saveDraft(
       try { await w.abort(); } catch { /* Preserve the original save error. */ }
       throw error;
     }
-    return { status: "saved", handle };
+    return { status: "saved", handle, fingerprint:await fileFingerprint(bytes) };
   }
   // 无 FS Access：下载兜底（浏览器下载目录写入由浏览器保证完整）
   download(bytes, suggested);

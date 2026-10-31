@@ -56,6 +56,8 @@ node node_modules/playwright-core/cli.js install chromium
 
 Linux 环境缺少系统库时使用 `install --with-deps chromium`。脚本默认依次尝试系统 Chrome、Edge、Playwright Chromium；设置 `DRAFT_BROWSER=chromium` 可与 CI 保持一致，也可指定 `chrome` / `msedge`。测试会自行启动本地预览，预留端口 4180、4182、4184、4186；不要并行运行完整浏览器套件。生成的截图放在被 Git 忽略的 `artifacts/`。
 
+文件句柄／IndexedDB 回归使用 Playwright 1.64.1 的 Chromium 156，或当前 Chrome／Edge。旧 Chromium 153／154 的句柄序列化存在已确认的浏览器崩溃，不能以删断言或跳过持久化用例规避；详情见 [Chromium #569219196](https://issues.chromium.org/issues/569219196)。更新 Playwright 后需重新安装其对应浏览器。
+
 **提交任何代码 PR 前，Agent 必须完整执行并通过 `npm run check`：**
 
 | 命令（按执行顺序） | 必须验证的行为 |
@@ -75,6 +77,9 @@ Linux 环境缺少系统库时使用 `install --with-deps chromium`。脚本默�
 | `npm run smoke:flow` | 流程外形、备注与公式、分叉／反馈路径、样式撤销、文件与 PNG；端口 4194 |
 | `npm run smoke:appearance` | 外形切换的中心锚定、多选单步、平滑曲线与折线绕障区别、缩放；端口 4195 |
 | `npm run smoke:flowing` | 流动虚线沿箭头方向、反向／反馈边、无向静态、减少动态效果、保存与静态 PNG；端口 4196 |
+| `npm run smoke:curves` | 同源自由曲线有序扇出、实测外框与长备注、结构视图、默认／非 100% 缩放、共享检查与 SVG 一致、PNG 和无额外历史；端口 4197 |
+| `npm run smoke:names` | 名称清空／占位／静默恢复、中文合成、当前名称建议文件名、授权目录后的安全文件改名及同名拒绝；端口 4198 |
+| `npm run smoke:bindings` | IndexedDB 文件／目录句柄跨刷新与 host 重启、权限恢复、外部修改及不同白板／导入副本隔离；端口 4199 |
 
 `npm run check` 是上述命令的顺序组合，CI 执行同一命令。纯文档 PR 可以注明未运行代码测试及原因，但仍需检查相对链接、示例命令与实现一致。测试环境缺失或命令失败时，明确记录阻塞与日志，不得声称通过、删断言或跳过失败来制造绿色结果。
 

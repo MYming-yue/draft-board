@@ -101,18 +101,23 @@ try {
       animation.pause(); animation.currentTime = 0; const start = getComputedStyle(el).strokeDashoffset;
       animation.currentTime = 200; const next = getComputedStyle(el).strokeDashoffset;
       const first = el.getPointAtLength(0), last = el.getPointAtLength(el.getTotalLength());
-      const marker = el.ownerSVGElement.querySelector(el.getAttribute('marker-end').slice(4, -1));
-      const result = { start, next, dash: getComputedStyle(el).strokeDasharray, first: { x: first.x, y: first.y }, last: { x: last.x, y: last.y }, markerAnimations: marker.getAnimations({ subtree: true }).length };
+      const head = el.parentElement.querySelector('.edge-arrow');
+      const hs=getComputedStyle(head);
+      const result = { start, next, dash: getComputedStyle(el).strokeDasharray, first: { x: first.x, y: first.y }, last: { x: last.x, y: last.y }, headPresent:!!head, markerAnimations: head.getAnimations().length, headStroke:hs.strokeWidth,headDash:hs.strokeDasharray,headColor:hs.fill==='none'?hs.stroke:hs.fill,lineColor:getComputedStyle(el).stroke };
       animation.play(); return result;
     });
     assert.ok(sample, `${id} has an active animation`); assert.equal(sample.dash, '6px, 4px');
+    assert.equal(sample.headPresent,true,'directed edge has a visible arrowhead');
+    assert.equal(sample.headStroke,'1.5px','arrow stroke does not follow selected line thickness');
+    assert.equal(sample.headDash,'none','arrow itself remains solid');
+    assert.equal(sample.headColor,sample.lineColor,'arrow uses the selected or normal edge colour');
     assert.ok(parseFloat(sample.next) < parseFloat(sample.start), 'dash phase advances toward the arrow');
     assert.equal(sample.markerAnimations, 0, 'arrowhead stays still');
     if (id === 'e_flowreverse') assert.ok(sample.first.x > sample.last.x, 'reverse edge path also starts at its source');
     if (id === 'e_flowback0') assert.ok(sample.first.y > sample.last.y, 'feedback path runs upward toward its target');
   }
   for (const id of ['e_flownone0', 'e_flowdefault']) assert.equal(await path(id).evaluate(el => el.getAnimations().length), 0);
-  assert.equal(await path('e_flownone0').getAttribute('marker-end'), null);
+  assert.equal(await page.locator('[data-edge-id="e_flownone0"] .edge-arrow').count(), 0);
   const stamp = await page.evaluate(() => [window.__state.file.board.contentVersion, window.__state.file.history.length]);
   const liveTime = await path('e_flowcurve').evaluate(el => el.getAnimations()[0].currentTime);
   await settle(); await settle();

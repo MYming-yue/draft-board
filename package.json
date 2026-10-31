@@ -1,11 +1,16 @@
 {
   "name": "draft-board",
   "private": true,
-  "version": "0.2.4-dev.1",
+  "version": "0.2.4-dev.6",
   "description": "Local-first whiteboard for Markdown, equations, images, and connected thinking. Editable by people and agents.",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/MYming-yue/draft-board.git" },
-  "engines": { "node": ">=22" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MYming-yue/draft-board.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,14 +23,17 @@
     "smoke:concept": "node scripts/verify-concept-cards.mjs",
     "smoke:edges": "node scripts/verify-association-edges.mjs",
     "smoke:pwa": "node scripts/verify-pwa-file-launch.mjs",
-    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:concept && npm run smoke:edges && npm run smoke:pwa && npm run smoke:collections && npm run smoke:layout && npm run smoke:sync && npm run smoke:flow && npm run smoke:appearance && npm run smoke:flowing",
+    "check": "npm run build && npm test && npm run smoke:cli && npm run smoke && npm run smoke:formula && npm run smoke:alignment && npm run smoke:concept && npm run smoke:edges && npm run smoke:pwa && npm run smoke:collections && npm run smoke:layout && npm run smoke:sync && npm run smoke:flow && npm run smoke:appearance && npm run smoke:flowing && npm run smoke:curves && npm run smoke:names && npm run smoke:bindings",
     "preview": "vite preview",
     "smoke:collections": "node scripts/verify-collections.mjs",
     "smoke:layout": "node scripts/verify-layout.mjs",
     "smoke:sync": "node scripts/verify-file-sync.mjs",
     "smoke:flow": "node scripts/verify-flow-appearance.mjs",
     "smoke:appearance": "node scripts/verify-appearance-refinements.mjs",
-    "smoke:flowing": "node scripts/verify-flowing-lines.mjs"
+    "smoke:flowing": "node scripts/verify-flowing-lines.mjs",
+    "smoke:curves": "node scripts/verify-curve-branches.mjs",
+    "smoke:names": "node scripts/verify-board-names.mjs",
+    "smoke:bindings": "node scripts/verify-file-bindings.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",
@@ -41,7 +49,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
-    "playwright-core": "^1.63.0",
+    "playwright-core": "^1.64.1",
     "typescript": "~5.6.3",
     "vite": "^5.4.10",
     "vitest": "^2.1.4"

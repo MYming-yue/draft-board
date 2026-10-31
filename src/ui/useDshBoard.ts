@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { parseBoard, serializeBoard, type DraftBundle } from "../model";
+import { draftFileName, parseBoard, serializeBoard, type DraftBundle } from "../model";
 import { sameDraftContent, verifyExternalUpdate, type ExternalChanges } from "./externalChanges";
 import type { EditorApi } from "./store";
 import { measureLayoutGeometry } from "./layoutGeometry";
@@ -73,7 +73,7 @@ export function useDshBoard(editor: EditorApi, layoutBusy: boolean) {
       }
       if (!busy() && (replace || !sameDraftContent(state.file, base.bundle.file))) {
         const sent = serializeBoard(state.file, state.blobs);
-        const result = await request<{ revision: string }>("sync", { revision: base.revision, data: encode(sent), fileName: state.fileName, replace });
+        const result = await request<{ revision: string }>("sync", { revision: base.revision, data: encode(sent), fileName: draftFileName(state.file.board.name), replace });
         if (stopped) return;
         baseline.current = { bundle: parseBoard(sent), revision: result.revision, sessionId: state.sessionId };
         if (!state.fileHandle) dispatch({ type: "markSaved", stamp: { sessionId: state.sessionId, editRevision: state.editRevision } });
@@ -166,7 +166,7 @@ export function useDshBoard(editor: EditorApi, layoutBusy: boolean) {
       if (stopped) return;
       const bundle = parseBoard(decode(snapshot.data));
       baseline.current = { bundle, revision: snapshot.revision, sessionId: null };
-      latest.current.editor.dispatch({ type: "load", bundle, handle: null, fileName: snapshot.fileName });
+      latest.current.editor.dispatch({ type: "load", bundle, handle: null, fileName: snapshot.fileName, restoreFileBinding:true });
       setLoading(false); setStatus("已同步");
       void request<{task:LayoutTask|null}>('layout').then(result=>{if(!stopped && result.task?.boardId===bundle.file.board.id)setLayoutTask(result.task);}).catch(()=>{});
       timer = setTimeout(tick, 750);

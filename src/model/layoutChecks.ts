@@ -2,7 +2,7 @@ import { collectionBounds } from "./collections";
 import { visibleEdges } from "./association";
 import type { BoardFile } from "./types";
 import type { LayoutGeometry } from "./layout";
-import { edgeGeometry, segmentTouchesRect, type Point } from "./edgeRouting";
+import { edgeGeometries, segmentTouchesRect, type Point } from "./edgeRouting";
 type Rect = {
     x: number;
     y: number;
@@ -37,8 +37,9 @@ export function layoutConflicts(file: BoardFile, geometry: LayoutGeometry, label
     const heights = Object.fromEntries(Object.entries(geometry).map(([id, v]) => [id, v.h]));
     const widths = Object.fromEntries(Object.entries(geometry).map(([id, v]) => [id, v.w]));
     const shownEdges = visibleEdges(file.edges);
+    const geometries = edgeGeometries(shownEdges, file.nodes, heights, widths);
     for (const edge of shownEdges) {
-        const routed = edgeGeometry(edge, file.nodes, heights, widths, shownEdges);
+        const routed = geometries.get(edge.id);
         if (!routed)
             continue;
         const points = routed.points;
@@ -103,7 +104,8 @@ export function readabilityConflicts(file: BoardFile, geometry: LayoutGeometry, 
     const heights=Object.fromEntries(Object.entries(geometry).map(([id,g])=>[id,g.h]));
     const widths=Object.fromEntries(Object.entries(geometry).map(([id,g])=>[id,g.w]));
     const edges=visibleEdges(file.edges);
-    const routed=edges.flatMap(e=>{const g=edgeGeometry(e,file.nodes,heights,widths,edges);return g ? [{e,g,label:labels?.[e.id] ?? g.labelBox}] : [];});
+    const geometries=edgeGeometries(edges,file.nodes,heights,widths);
+    const routed=edges.flatMap(e=>{const g=geometries.get(e.id);return g ? [{e,g,label:labels?.[e.id] ?? g.labelBox}] : [];});
     for (let i=0;i<routed.length;i++) for (let j=i+1;j<routed.length;j++) {
         const a=routed[i],b=routed[j],common=[a.e.from,a.e.to].some(id=>id===b.e.from || id===b.e.to);
         const issue=(kind:LayoutConflict["kind"])=>out.push({kind,nodeId:a.e.from,otherIds:[a.e.to,b.e.from,b.e.to],edgeIds:[a.e.id,b.e.id]});

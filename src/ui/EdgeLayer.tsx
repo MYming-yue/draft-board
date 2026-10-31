@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BoardEdge, BoardNode } from "../model";
 import { visibleEdges } from "../model";
 
-import { edgeGeometry } from "../model/edgeRouting";
+import { edgeGeometries } from "../model/edgeRouting";
 export { edgeGeometry } from "../model/edgeRouting";
 export type { EdgeGeom } from "../model/edgeRouting";
 const EST_H = 120;
@@ -32,29 +32,16 @@ export function EdgeLayer(p: EdgeLayerProps) {
   }, [p.editingLabelId, p.edges]);
 
   const selected = new Set(p.selectedEdgeIds);
-  const shownEdges = visibleEdges(p.edges);
+  const shownEdges = useMemo(() => visibleEdges(p.edges), [p.edges]);
+  const geometries = useMemo(() => edgeGeometries(shownEdges, p.nodes, p.heights, p.widths), [shownEdges, p.nodes, p.heights, p.widths]);
   const editingEdge = p.editingLabelId ? p.edges.find((e) => e.id === p.editingLabelId) : null;
-  const editingMid = editingEdge ? (edgeGeometry(editingEdge, p.nodes, p.heights, p.widths, shownEdges)?.mid ?? null) : null;
+  const editingMid = editingEdge ? (geometries.get(editingEdge.id)?.mid ?? null) : null;
 
   return (
     <>
       <svg className="edge-layer">
-        <defs>
-          <marker id="arrow-assoc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="var(--edge-assoc)" strokeWidth="1.6" />
-          </marker>
-          <marker id="arrow-parent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--edge-parent)" />
-          </marker>
-          <marker id="arrow-assoc-sel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="var(--edge-selected)" strokeWidth="1.8" />
-          </marker>
-          <marker id="arrow-parent-sel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--edge-selected)" />
-          </marker>
-        </defs>
         {shownEdges.map((e) => {
-          const g = edgeGeometry(e, p.nodes, p.heights, p.widths, shownEdges);
+          const g = geometries.get(e.id);
           if (!g) return null;
           const isParent = e.kind === "parentChild";
           const isSel = selected.has(e.id);
@@ -65,16 +52,13 @@ export function EdgeLayer(p: EdgeLayerProps) {
             e.stroke ? `edge-stroke-${e.stroke}` : '',
             e.stroke === 'flowing-dashed' && e.directed ? 'edge-flow-active' : '',
           ].join(" ");
-          const marker = isSel
-            ? isParent
-              ? "url(#arrow-parent-sel)"
-              : "url(#arrow-assoc-sel)"
-            : isParent
-              ? "url(#arrow-parent)"
-              : "url(#arrow-assoc)";
+          const head = g.arrow;
           return (
             <g key={e.id} data-edge-id={e.id} data-routing={e.routing ?? 'curve'}>
-              <path className={cls} d={g.d} markerEnd={e.directed ? marker : undefined} />
+              <path className={cls} d={g.strokeD ?? g.d} />
+              {head && <path className="edge-arrow" d={`M ${head.left.x} ${head.left.y} L ${head.tip.x} ${head.tip.y} L ${head.right.x} ${head.right.y}${isParent ? ' Z' : ''}`}
+                fill={isParent ? 'currentColor' : 'none'} stroke={isParent ? 'none' : 'currentColor'} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round"
+                style={{color:isSel ? 'var(--edge-selected)' : isParent ? 'var(--edge-parent)' : 'var(--edge-assoc)'}} />}
               {!p.readOnly && (
                 <path className="edge-hit" d={g.d} onPointerDown={(ev) => p.onSelectEdge(ev, e.id)} />
               )}

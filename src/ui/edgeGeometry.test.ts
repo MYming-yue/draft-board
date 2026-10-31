@@ -21,7 +21,9 @@ it.each([150, -150, 90, -90])("纵向单线从上下边竖直进出且不回折�
   ];
   const e: BoardEdge = { id: "ab", kind: "association", from: "a", to: "b", directed: true };
   const g = edgeGeometry(e, nodes, {})!;
-  const [x0, y0, x1, y1, x2, y2, x3, y3] = g.d.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+  const values = g.d.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+  const [x0, y0, x1, y1] = values;
+  const [,,x2,y2,x3,y3] = values.slice(-6);
   expect([x0, x1, x2, x3]).toEqual([200, 200, 200, 200]);
   for (const value of [y1, y2]) {
     expect(value).toBeGreaterThanOrEqual(Math.min(y0, y3));
@@ -29,15 +31,18 @@ it.each([150, -150, 90, -90])("纵向单线从上下边竖直进出且不回折�
   }
 });
 
-it("不同实测宽高的错位卡片按各自边框法线连接", () => {
+it("不同实测宽高的错位卡片沿中心方向斜入边缘", () => {
   const nodes: BoardNode[] = [
     { id: "a", type: "text", markdown: "A", x: 0, y: 0, w: 100, h: 80 },
     { id: "b", type: "text", markdown: "B", x: 40, y: 200, w: 100, h: 80 },
   ];
   const g = edgeGeometry({ id: "ab", kind: "parentChild", from: "a", to: "b", directed: true }, nodes, { a: 60, b: 100 }, { a: 400, b: 350 })!;
-  const [x0, y0, x1, y1, x2, y2, x3, y3] = g.d.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
-  expect(x0).toBe(x1);
-  expect(x2).toBe(x3);
+  const values = g.d.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+  const [x0,y0,x1,y1] = values;
+  const [,,x2,y2,x3,y3] = values.slice(-6);
+  expect(x0).not.toBe(x1);
+  expect(x2).not.toBe(x3);
+  expect((x3-x2)*(250-y3)-(y3-y2)*(215-x3)).toBeCloseTo(0,7);
   expect(y1).toBeGreaterThan(y0);
   expect(y2).toBeLessThan(y3);
 });

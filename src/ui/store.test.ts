@@ -3,6 +3,14 @@ import { editorReducer, initialEditorState } from "./store";
 import { commitStep } from "../model";
 import { verifyExternalUpdate } from "./externalChanges";
 
+it('only a host-restored board may automatically revive a remembered disk file',()=>{
+  const initial=initialEditorState(),bundle={file:initial.file,blobs:{}};
+  const opened=editorReducer(initial,{type:'load',bundle,handle:null,fileName:'导入副本.draft'});
+  const hosted=editorReducer(initial,{type:'load',bundle,handle:null,fileName:'已保存.draft',restoreFileBinding:true});
+  expect(opened.restoreFileBinding).toBe(false);expect(hosted.restoreFileBinding).toBe(true);
+  expect(editorReducer(hosted,{type:'setHandle',handle:null,fileName:'副本.draft',stamp:{sessionId:hosted.sessionId,editRevision:hosted.editRevision}}).restoreFileBinding).toBe(false);
+});
+
 it("外部批次保留视图和会话，整轮撤销，并拒绝过期更新覆盖编辑", () => {
   let state = initialEditorState();
   const node = { id: "n_agent01", type: "text" as const, markdown: "可编辑公式", x: 100, y: 100, w: 240 };

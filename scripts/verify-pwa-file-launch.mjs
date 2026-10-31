@@ -165,6 +165,7 @@ await editReload;
 ok("卡片编辑尚未提交时刷新也会提示", editDialogType === "beforeunload");
 await page.keyboard.press("Escape");
 await page.waitForFunction(() => window.__state.editingId === null);
+const originalBoardName=await page.evaluate(()=>window.__state.file.board.name);
 await page.locator(".board-name").fill("刷新保护测试");
 await page.waitForFunction(() => window.__state.saveState === "dirty");
 await page.evaluate(() => { window.__savePickerCalled = 0; window.showSaveFilePicker = async () => { window.__savePickerCalled++; throw new DOMException("cancelled", "AbortError"); }; });
@@ -178,7 +179,9 @@ await unloadDialog.dismiss();
 await reloadAttempt;
 ok("浏览器刷新对未保存白板弹出离开提示", unloadType === "beforeunload");
 ok("取消刷新后保留未保存内容", (await page.locator(".board-name").inputValue()) === "刷新保护测试");
-await page.locator(".board-name").fill("PWA 保存回写测试");
+// Title-to-filename renaming is covered by smoke:names; here keep the binding
+// name unchanged to verify launchQueue handle writes without a folder picker.
+await page.locator(".board-name").fill(originalBoardName);
 await page.keyboard.press("Control+s");
 await page.waitForFunction(() => window.__pwaSavedBytes > 0 && window.__state.saveState === "saved");
 ok("Ctrl+S 写回启动时收到的文件句柄", (await page.evaluate(() => window.__pwaSavedBytes)) > 0);

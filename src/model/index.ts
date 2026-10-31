@@ -16,3 +16,4 @@ export * from "./collections";
 
 export * from "./edgeRouting";
 export * from "./layoutChecks";
+export * from "./boardNames";

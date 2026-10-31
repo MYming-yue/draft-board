@@ -19,7 +19,7 @@ export async function exportBoardPng(fileName: string): Promise<void> {
     y1 = Math.max(y1, c.offsetTop + c.offsetHeight);
   }
   // Routed paths and relationship labels may extend beyond the card outline.
-  for (const element of world.querySelectorAll<SVGGraphicsElement>('.edge-path, .edge-label')) {
+  for (const element of world.querySelectorAll<SVGGraphicsElement>('.edge-path, .edge-arrow, .edge-label')) {
     const b=element.getBBox();
     x0=Math.min(x0,b.x);y0=Math.min(y0,b.y);
     x1=Math.max(x1,b.x+b.width);y1=Math.max(y1,b.y+b.height);

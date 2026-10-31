@@ -56,6 +56,8 @@ node node_modules/playwright-core/cli.js install chromium
 
 Linux 环境缺少系统库时使用 `install --with-deps chromium`。脚本默认依次尝试系统 Chrome、Edge、Playwright Chromium；设置 `DRAFT_BROWSER=chromium` 可与 CI 保持一致，也可指定 `chrome` / `msedge`。测试会自行启动本地预览，预留端口 4180、4182、4184、4186；不要并行运行完整浏览器套件。生成的截图放在被 Git 忽略的 `artifacts/`。
 
+Chromium 使用 `channel: 'chromium'` 的完整浏览器无界面模式，与 Chrome／Edge 的模式一致；不使用默认 headless shell 验证文件句柄持久化。两者的差异见 [Playwright 浏览器说明](https://playwright.dev/docs/browsers#chromium-new-headless-mode)。
+
 **提交任何代码 PR 前，Agent 必须完整执行并通过 `npm run check`：**
 
 | 命令（按执行顺序） | 必须验证的行为 |

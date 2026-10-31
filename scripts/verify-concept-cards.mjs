@@ -262,6 +262,9 @@ try {
     name: "磁盘文件.draft", mimeType: "application/octet-stream",
     buffer: Buffer.from(serializeBoard(stackFile, {})),
   });
+  // The chooser closes before ZIP parsing and IndexedDB binding updates finish.
+  // Wait for the imported board before editing its title.
+  await namingPage.waitForFunction(name => document.querySelector(".board-name")?.value === name, stackFile.board.name);
   await namingPage.locator(".board-name").fill("文件内部标题");
   const [existingSave] = await Promise.all([
     namingPage.waitForEvent("download"),
